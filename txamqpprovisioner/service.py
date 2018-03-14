@@ -32,7 +32,7 @@ class ServiceState(object):
     read_from_queue = False
     stopping = False
 
-class GroupProvisionerService(Service):
+class AMQPProvisionerService(Service):
     log = None
     maxSafeTimeNoUpdate = 60
     consumerTag = "mytag"

@@ -3,11 +3,16 @@
 Configuration
 =============
 
-The main configuration files are :file:`/etc/grouper/txgroupprovisioner.cfg`, 
-:file:`$HOME/.txgroupprovisioner.cfg`, and :file:`./txgroupprovisioner.cfg`.  
-Local file settings override user homedir settings, which override system 
-settings.  A specific file may be specified on the command line which overrides
-all other settings.
+The provisioner attempts to read its configuration first from 
+:file:`/etc/txamqpprovisioners/provisioners.cfg`, then from
+:file:`$HOME/.txamqpprovisionersrc/provisioners.cfg`, and finally from any
+configuration specified on the command line.  
+Settings from files specified on the command line ovveride any settings found
+in homedir settings, which override any system settings.  
+
+In this manner, common settings can be specified for all provisioners on a 
+particular system, and individual configurations can add or override settings
+for specific provisioners.
 
 The configuration sections and options are below.
 

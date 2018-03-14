@@ -4,7 +4,7 @@ import argparse
 import sys
 from txgroupprovisioner.admin import SSHAdminService
 from txgroupprovisioner.config import load_config, section2dict
-from txgroupprovisioner.service import GroupProvisionerService
+from txgroupprovisioner.service import AMQPProvisionerService
 from txgroupprovisioner.web import WebService
 from twisted.application import internet
 from twisted.application.service import IServiceMaker, MultiService
@@ -98,7 +98,7 @@ class MyServiceMaker(object):
             ssh_public_key = 'keys/id_rsa.pub'
         # Create the service.
         try:
-            groupService = GroupProvisionerService(
+            groupService = AMQPProvisionerService(
                 config=config, 
                 use_syslog=args.syslog, 
                 syslog_prefix=args.prefix,

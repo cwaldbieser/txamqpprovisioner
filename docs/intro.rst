@@ -1,6 +1,6 @@
-##################
-txgroupprovisioner
-##################
+#################
+txamqpprovisioner
+#################
 
 .. highlight:: console
 
@@ -8,7 +8,7 @@ txgroupprovisioner
 Overview
 ========
 
-A Twisted Group Provisioner (*txgroupprovisioner*) is a service that
+A Twisted iAMQP Provisioner (*txamqpprovisioner*) is a service that
 reads membership and account provisioning messages from an AMQP message 
 queue and makes changes to a specific target service.
 

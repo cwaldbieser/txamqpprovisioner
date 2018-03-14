@@ -5,14 +5,14 @@ Running
 
 A single instance of a provisioner may be invoked as a twisted plugin::
 
-    $ ./twistd.sh --syslog provisioner
+    $ ./twistd --syslog provisioner
 
 Other options for the `provisioner` plugin or the `twistd` program itself
 are available.  Try using the `--help` option for more information.
 
 .. note::
 
-    The architecture of the txgroupprovisioner system is that the message
+    The architecture of the txamqpprovisioner system is that the message
     exchange forms a backbone that connects event sources to provisioners.
     As such, there isn't a single `run` command for the entire system.
     Instead, individual services can be stopped and started.
@@ -43,10 +43,10 @@ subject provisioner service.
      
     script
     /usr/bin/sudo -u grouper /bin/bash <<START
-    cd /opt/txgroupprovisioner/ 
+    cd /opt/txamqpprovisioner/ 
     . ./pyenv/bin/activate 
     export LD_LIBRARY_PATH=/usr/local/lib64
-    ./twistd.sh -n --syslog --prefix ldapsubj --pidfile /var/run/txgroupprovisioner/ldapsubj.pid  provisioner -c /etc/grouper/provisioners/ldapsubj.cfg
+    twistd -n --syslog --prefix ldapsubj --pidfile /var/run/txgroupprovisioner/ldapsubj.pid  provisioner -c /etc/grouper/provisioners/ldapsubj.cfg
     START
     end script
 

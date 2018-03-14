@@ -4,12 +4,9 @@ from  cStringIO import StringIO
 import os.path
 
 def load_config(config_file=None, defaults=None):
-    basefile="txgroupprovisioner.cfg"
-    syspath = os.path.join("/etc/grouper", basefile)
-    homepath = os.path.expanduser("~/.{0}".format(basefile))
-    apppath = os.path.join(os.path.dirname(__file__), basefile)
-    curpath = os.path.join(os.curdir, basefile)
-    files = [syspath, homepath, apppath, curpath]
+    syspath = "/etc/txamqpprovisioners/provisioners.cfg"
+    homepath = os.path.expanduser("~/.txamqpprovisionersrc/provisioners.cfg")
+    files = [syspath, homepath]
     if config_file is not None:
         files.append(config_file)
     scp = SafeConfigParser()

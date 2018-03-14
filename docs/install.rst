@@ -3,10 +3,12 @@
 Installation
 ============
 
-The Python requirements are listed in :file:`requirements.txt`.  The various shell scripts
-assume that you have installed these in a Python virtual environment (ala `virtualenv`) in
-the same folder called :file:`pyenv`.
+This software has been tested an run with PYthon v2.7.
 
+The Python requirements are listed in :file:`requirements.txt`.  These
+are satisfied in the usual Pythonic way.  I.e. create a Python virtualenv,
+then install with `pip`.
+ 
 Example::
 
     $ virtualenv pyenv
@@ -14,7 +16,9 @@ Example::
     (pyenv)$ pip install -r ./requirements.txt
 
 
-OS dependencies may vary slightly across distributions:
+OS dependencies may vary across distributions.  Installation of these is not
+covered in detail here.  An example of typical OS packages that may need to be
+installed might include:
 
 * python-devel
 * libffi-devel

@@ -12,7 +12,7 @@ the changes in an LDAP :term:`DIT` at regular intervals.  This can minimizei
 writes to LDAP group entries that might require repeated modification in a short
 time span.  The LDAP provisioner can be configured to provision LDAP groups and
 user entries.  A single provisioner can modify both simultaneously or only
-groups or only user entries.  This can be optimal for LDAP service i
+groups or only user entries.  This can be optimal for LDAP service 
 implementations that require user entries and groups to be updated independently
 of one another (e.g. OpenLDAP).
 
@@ -47,10 +47,10 @@ Example
 
     [PROVISIONER]
     log_level = WARN
-    url = ldap://ldap3.lafayette.edu:389/
+    url = ldap://directory0.lafayette.edu:389/
     start_tls = 1
     base_dn = o=lafayette
-    bind_dn = cn=groupermanager,o=lafayette
+    bind_dn = cn=ldap-manager,ou=servicedns,o=lafayette
     passwd = LDAP-PASSWORD
     empty_dn=cn=nobody,ou=nowhere,o=lafayette
     group_attribute = member
@@ -58,7 +58,7 @@ Example
     group_value_type = dn
     user_value_type = dn
     batch_interval = 20
-    group_map = /etc/grouper/provisioners/ldap/groupmap.json
+    group_map = /etc/txamqpprovisioners/provisioners/ldap/groupmap.json
 
 
 -----------------------
