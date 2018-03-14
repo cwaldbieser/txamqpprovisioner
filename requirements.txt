@@ -35,3 +35,4 @@ txAMQP==0.6.2
 urllib3==1.22
 Werkzeug==0.11.9
 zope.interface==4.4.2
+txsshadmin==0.1.0
