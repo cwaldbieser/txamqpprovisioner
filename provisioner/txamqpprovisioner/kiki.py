@@ -147,7 +147,7 @@ class KikiProvisioner(object):
         """
         Return option defaults.
         """
-        spec_dir = os.path.join(os.path.split(os.path.split(__file__)[0])[0], "spec")
+        spec_dir = os.path.join(os.path.dirname(__file__), "spec")
         spec_path = os.path.join(spec_dir, "amqp0-9-1.stripped.xml")
         return dedent("""\
             [PROVISIONER]
