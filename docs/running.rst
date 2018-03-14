@@ -46,7 +46,7 @@ subject provisioner service.
     cd /opt/txamqpprovisioner/ 
     . ./pyenv/bin/activate 
     export LD_LIBRARY_PATH=/usr/local/lib64
-    twistd -n --syslog --prefix ldapsubj --pidfile /var/run/txgroupprovisioner/ldapsubj.pid  provisioner -c /etc/grouper/provisioners/ldapsubj.cfg
+    twistd -n --syslog --prefix ldapsubj --pidfile /var/run/txamqpprovisioner/ldapsubj.pid  provisioner -c /etc/grouper/provisioners/ldapsubj.cfg
     START
     end script
 

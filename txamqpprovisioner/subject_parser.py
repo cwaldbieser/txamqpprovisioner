@@ -4,7 +4,7 @@ from zope.interface import implements
 from kikimessage import (
     SubjectChangedMsg,
 )
-from txgroupprovisioner.interface import (
+from txamqpprovisioner.interface import (
     IMessageParserFactory, 
     IMessageParser,
 )

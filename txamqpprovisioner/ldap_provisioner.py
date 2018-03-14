@@ -29,8 +29,8 @@ from twisted.internet import endpoints
 from twisted.internet import task
 from twisted.internet.task import LoopingCall
 from twisted.logger import Logger
-from txgroupprovisioner.interface import IProvisionerFactory, IProvisioner
-from txgroupprovisioner import constants
+from txamqpprovisioner.interface import IProvisionerFactory, IProvisioner
+from txamqpprovisioner import constants
 
 
 LDAPTarget = namedtuple(

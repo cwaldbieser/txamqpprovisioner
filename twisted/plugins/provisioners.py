@@ -1,30 +1,30 @@
 
-from txgroupprovisioner.ldap_provisioner import LDAPProvisionerFactory
+from txamqpprovisioner.ldap_provisioner import LDAPProvisionerFactory
 ldap_provisioner_factory = LDAPProvisionerFactory()
 
-from txgroupprovisioner.kiki import KikiProvisionerFactory
+from txamqpprovisioner.kiki import KikiProvisionerFactory
 kiki_provisioner_factory = KikiProvisionerFactory()
 
-from txgroupprovisioner.ssh_provisioner import SSHProvisionerFactory
+from txamqpprovisioner.ssh_provisioner import SSHProvisionerFactory
 ssh_provisioner_factory = SSHProvisionerFactory()
 
-from txgroupprovisioner.board_effect_provisioner import BoardEffectProvisionerFactory
+from txamqpprovisioner.board_effect_provisioner import BoardEffectProvisionerFactory
 board_effect_provisioner_factory = BoardEffectProvisionerFactory()
 
-from txgroupprovisioner.slack_provisioner import SlackProvisionerFactory
+from txamqpprovisioner.slack_provisioner import SlackProvisionerFactory
 slack_provisioner_factory = SlackProvisionerFactory()
 
-from txgroupprovisioner.o365_provisioner import O365ProvisionerFactory
+from txamqpprovisioner.o365_provisioner import O365ProvisionerFactory
 o365_provisioner_factory = O365ProvisionerFactory()
 
-from txgroupprovisioner.moodle_provisioner import MoodleProvisionerFactory
+from txamqpprovisioner.moodle_provisioner import MoodleProvisionerFactory
 moodle_provisioner_factory = MoodleProvisionerFactory()
 
-from txgroupprovisioner.qualtrics_provisioner import QualtricsProvisionerFactory
+from txamqpprovisioner.qualtrics_provisioner import QualtricsProvisionerFactory
 qualtrics_provisioner_factory = QualtricsProvisionerFactory()
 
-from txgroupprovisioner.duo_provisioner import DuoSecurityProvisionerFactory
+from txamqpprovisioner.duo_provisioner import DuoSecurityProvisionerFactory
 duo_provisioner_factory = DuoSecurityProvisionerFactory()
 
-from txgroupprovisioner.zoom_provisioner import ZoomProvisionerFactory
+from txamqpprovisioner.zoom_provisioner import ZoomProvisionerFactory
 zoom_provisioner_factory = ZoomProvisionerFactory()

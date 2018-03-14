@@ -4,7 +4,7 @@ REST Provisioners
 =================
 
 REST provisioners are a class of provisioner that derive from the base
-:py:class:`txgroupprovisioner.rest_provisioner.RestProvisioner`.  These
+:py:class:`txamqpprovisioner.rest_provisioner.RestProvisioner`.  These
 provisioners share many similar traits and options.
 
 Each REST provisioner uses an HTTP-based API in order to query and manipulate

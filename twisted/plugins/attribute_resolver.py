@@ -1,6 +1,6 @@
 
-from txgroupprovisioner.rdbms_attrib_resolver import RDBMSAttributeResolverFactory
-from txgroupprovisioner.ldap_attrib_resolver import LDAPAttributeResolverFactory
+from txamqpprovisioner.rdbms_attrib_resolver import RDBMSAttributeResolverFactory
+from txamqpprovisioner.ldap_attrib_resolver import LDAPAttributeResolverFactory
 
 rdbms_attribute_resolver = RDBMSAttributeResolverFactory()
 ldap_attribute_resolver = LDAPAttributeResolverFactory()

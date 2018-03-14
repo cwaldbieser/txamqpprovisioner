@@ -5,7 +5,7 @@ from zope.interface import implements
 from kikimessage import (
     BasicFullSyncMsg,
 )
-from txgroupprovisioner.interface import (
+from txamqpprovisioner.interface import (
     IMessageParserFactory, 
     IMessageParser,
 )

@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 
-from txgroupprovisioner.interface import (
+from txamqpprovisioner.interface import (
     IAttributeResolverFactory,
     IGroupMapperFactory,
     IMessageParserFactory,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# txgroupprovisioner documentation build configuration file, created by
+# txamqpprovisioner documentation build configuration file, created by
 # sphinx-quickstart on Fri Dec  8 16:08:21 2017.
 #
 # This file is execfile()d with the current directory set to its
@@ -46,7 +46,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = 'txgroupprovisioner'
+project = 'txamqpprovisioner'
 copyright = '2017, Carl Waldbieser'
 author = 'Carl Waldbieser'
 
@@ -120,7 +120,7 @@ html_sidebars = {
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'txgroupprovisionerdoc'
+htmlhelp_basename = 'txamqpprovisionerdoc'
 
 
 # -- Options for LaTeX output ---------------------------------------------
@@ -147,7 +147,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'txgroupprovisioner.tex', 'txgroupprovisioner Documentation',
+    (master_doc, 'txamqpprovisioner.tex', 'txamqpprovisioner Documentation',
      'Carl Waldbieser', 'manual'),
 ]
 
@@ -157,7 +157,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'txgroupprovisioner', 'txgroupprovisioner Documentation',
+    (master_doc, 'txamqpprovisioner', 'txamqpprovisioner Documentation',
      [author], 1)
 ]
 
@@ -168,8 +168,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'txgroupprovisioner', 'txgroupprovisioner Documentation',
-     author, 'txgroupprovisioner', 'One line description of project.',
+    (master_doc, 'txamqpprovisioner', 'txamqpprovisioner Documentation',
+     author, 'txamqpprovisioner', 'One line description of project.',
      'Miscellaneous'),
 ]
 

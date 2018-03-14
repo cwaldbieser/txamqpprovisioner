@@ -5,7 +5,7 @@ import constants
 from kikimessage import (
     MembershipChangeMsg,
 )
-from txgroupprovisioner.interface import (
+from txamqpprovisioner.interface import (
     IMessageParserFactory, 
     IMessageParser,
 )

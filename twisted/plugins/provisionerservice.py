@@ -2,10 +2,10 @@
 from __future__ import print_function
 import argparse
 import sys
-from txgroupprovisioner.admin import SSHAdminService
-from txgroupprovisioner.config import load_config, section2dict
-from txgroupprovisioner.service import AMQPProvisionerService
-from txgroupprovisioner.web import WebService
+from txamqpprovisioner.admin import SSHAdminService
+from txamqpprovisioner.config import load_config, section2dict
+from txamqpprovisioner.service import AMQPProvisionerService
+from txamqpprovisioner.web import WebService
 from twisted.application import internet
 from twisted.application.service import IServiceMaker, MultiService
 from twisted.plugin import getPlugins, IPlugin

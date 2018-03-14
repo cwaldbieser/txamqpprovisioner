@@ -1,7 +1,7 @@
 
 import json
 from twisted.internet import defer
-from txgroupprovisioner import constants
+from txamqpprovisioner import constants
 
 
 class BaseMsg(object):
