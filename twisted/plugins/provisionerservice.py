@@ -21,7 +21,7 @@ class Options(usage.Options):
         ['ssh-endpoint', 's', None, 
             "Endpoint string for SSH admin interface.  E.g. 'tcp:2022'"],    
         ['admin-group', 'a', None, 
-            "Administrative access group.  Default 'txgroupadmins'"],    
+            "Administrative access group.  Default 'txamqp_admins'"],    
         ['ssh-private-key', 'k', None, 
             "SSH admin private key.  Default 'keys/id_rsa'."],    
         ['ssh-public-key', 'p', None, 
@@ -91,7 +91,7 @@ class MyServiceMaker(object):
                 web_endpoint_str = web_cfg.get('endpoint', None)
         # Final defaults.
         if admin_group is None:
-            admin_group = 'txgroupadmins'
+            admin_group = 'txamqp_admins'
         if ssh_private_key is None:
             ssh_private_key = 'keys/id_rsa'
         if ssh_public_key is None:
@@ -104,7 +104,7 @@ class MyServiceMaker(object):
                 syslog_prefix=args.prefix,
                 logfile=args.logfile)
         except Exception as ex:
-            print("Unable to create the group provisioner service: {0}".format(
+            print("Unable to create the AMQP provisioner service: {0}".format(
                 ex), file=sys.stderr)
             sys.exit(1)
         if ssh_endpoint_str is None and web_endpoint_str is None:

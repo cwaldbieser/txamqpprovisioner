@@ -8,7 +8,7 @@ txamqpprovisioner
 Overview
 ========
 
-A Twisted iAMQP Provisioner (*txamqpprovisioner*) is a service that
+A Twisted AMQP Provisioner (*txamqpprovisioner*) is a service that
 reads membership and account provisioning messages from an AMQP message 
 queue and makes changes to a specific target service.
 
