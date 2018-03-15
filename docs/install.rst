@@ -3,7 +3,7 @@
 Installation
 ============
 
-This software has been tested an run with PYthon v2.7.
+This software has been tested an run with Python v2.7.
 
 The Python requirements are listed in :file:`requirements.txt`.  These
 are satisfied in the usual Pythonic way.  I.e. create a Python virtualenv,

@@ -3,12 +3,38 @@
 Running
 =======
 
-A single instance of a provisioner may be invoked as a twisted plugin::
+------------------------------------
+Running from a cloned git repository
+------------------------------------
 
-    $ ./twistd --syslog provisioner
+A single instance of a provisioner may be invoked as a twisted plugin:
+
+.. code:: shell
+
+    $ cd /project/folder
+    $ export PYTHONPATH=.
+    $ twistd -n provisioner
+
+-------------------------------
+Running from installed software
+-------------------------------
+
+.. warning::
+
+    The author hasn't gotten around to writing proper Python install scripts
+    as of yet.  Once he does, the recommended way to install the software will
+    be with `pip`.  Once that happens, you won't need to worry about your 
+    current working folder or your PYTHONPATH.
+
+.. code:: shell
+
+    $ twistd -n provisioner
 
 Other options for the `provisioner` plugin or the `twistd` program itself
-are available.  Try using the `--help` option for more information.
+are available.  Notably, the `-n` option used in the above commands runs 
+the program in the foreground.  See the `OS Service Integration examples`_ 
+for an example of additional options being used.  Also, use the `--help` 
+option for more information.
 
 .. note::
 

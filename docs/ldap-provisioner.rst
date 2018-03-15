@@ -7,11 +7,14 @@ LDAP Provisioner
 Provisioner Configuration
 -------------------------
 
+To use the :py:class:`LDAPProvisioner` backend, set the provisioner option under the APPLICATION 
+section to **ldap**.
+
 The :py:class:`LDAPProvisioner` service stores messages in batches and reflects
-the changes in an LDAP :term:`DIT` at regular intervals.  This can minimizei
+the changes in an LDAP :term:`DIT` at regular intervals.  This can minimize
 writes to LDAP group entries that might require repeated modification in a short
 time span.  The LDAP provisioner can be configured to provision LDAP groups and
-user entries.  A single provisioner can modify both simultaneously or only
+user attributes.  A single provisioner can modify both simultaneously or only
 groups or only user entries.  This can be optimal for LDAP service 
 implementations that require user entries and groups to be updated independently
 of one another (e.g. OpenLDAP).

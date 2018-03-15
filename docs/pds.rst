@@ -9,7 +9,7 @@ messages into a common format.  It then applies routing labels to messages
 and delivers then to an exchange. 
 
 To use this provisioner, set the *provisioner* option under the 
-*APPLICATION* section to "kiki".
+*APPLICATION* section to **kiki**.
 
 This provisioner supports the following options in the `PROVISIONER` section:
 
