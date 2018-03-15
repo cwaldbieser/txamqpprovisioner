@@ -21,3 +21,5 @@ that flows from event sources to a provisioner delivery service and finally to
 the provisioners.  There may be multiple pipelines.  For example, there may be
 separate pipelines for membership provisioners and account provisioners.
 
+For the latest documentation, see: http://txamqpprovisioner.readthedocs.io/en/latest/
+
