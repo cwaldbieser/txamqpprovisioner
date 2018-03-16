@@ -1,0 +1,57 @@
+
+======================
+Office 365 PRovisioner
+======================
+
+The Office 365 provisioner uses the Microsoft Graph API to provision accounts
+and licenses into an Office 365 tenant.
+
+To use the :py:class:`~txamqpprovisioner.o365_provisioner.O365Provisioner`
+backend, set the *provisioner* option under the APPLICATION section to
+**o365_provisioner**.
+
+-------------
+Configuration
+-------------
+
+The options for the o365 provisioner are:
+
+* **client_id** - The client ID for the tenant.
+* **domain** - The domain the tenant serves (e.g. lafayette.edu).
+* **license_map** - A mapping from group names to license SKUs (see below).
+
+"""""""""""""""
+The License Map
+"""""""""""""""
+
+Licenses are manages as access control groups/policies by the provisioner.
+When the provisioner receives a membership event (e.g. add account "bob" to
+group "app:o365:policies:faculty_license"), it needs to map the group to
+a series of SKUs/product IDs that are to be enabled or disabled.  The mapping
+is a simple JSON file.  For example:
+
+.. code:: json
+
+    {
+        "license_faculty": {
+            "sku": "01234567-0123-0123-0123-0123456789abc",
+            "disabled_products": [
+                "91234567-0123-0123-0123-0123456789abc",
+                "81234567-0123-0123-0123-0123456789abc",
+                "71234567-0123-0123-0123-0123456789abc",
+                "61234567-0123-0123-0123-0123456789abc",
+                "51234567-0123-0123-0123-0123456789abc"
+            ]
+        },
+        "license_students": {
+            "sku": "21234567-0123-0123-0123-0123456789abc",
+            "disabled_products": [
+                "91234567-0123-0123-0123-0123456789abc",
+                "81234567-0123-0123-0123-0123456789abc",
+                "71234567-0123-0123-0123-0123456789abc",
+                "61234567-0123-0123-0123-0123456789abc",
+                "51234567-0123-0123-0123-0123456789abc"
+            ]
+        }
+    }
+
