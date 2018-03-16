@@ -22,4 +22,11 @@ Glossary
         The tag name for the PDS is "kiki", named after the children's movie
         *Kiki's Delivery Service* (1989).
 
+    match values
+        Match values can be computed for local subjects or remote accounts.  The
+        algorithms for producing a match value on the local and remote sides may
+        be different.  A match value on the local side that is identical to a
+        match value on the remote side means that the remote account is a
+        projection of the local account in the target system.
+
 
