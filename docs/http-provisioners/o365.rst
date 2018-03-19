@@ -1,6 +1,6 @@
 
 ======================
-Office 365 PRovisioner
+Office 365 Provisioner
 ======================
 
 The Office 365 provisioner uses the Microsoft Graph API to provision accounts

@@ -38,7 +38,7 @@ option for more information.
 
 .. note::
 
-    The architecture of the txamqpprovisioner system is that the message
+    In the architecture for the txamqpprovisioner system an AMQP message
     exchange forms a backbone that connects event sources to provisioners.
     As such, there isn't a single `run` command for the entire system.
     Instead, individual services can be stopped and started.
@@ -51,8 +51,8 @@ OS Service Integration examples
 RHEL6 Upstart
 """""""""""""
 
-The following is an example of a simple Upstart script to daemonize an LDAP
-subject provisioner service.
+The following is an example of a simple `Upstart <http://upstart.ubuntu.com/>`_
+script to daemonize an LDAP subject provisioner service.
 
 .. code-block:: shell
     :linenos:
