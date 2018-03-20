@@ -1,4 +1,6 @@
 
+.. _rest_provisioner:
+
 =================
 REST Provisioners
 =================

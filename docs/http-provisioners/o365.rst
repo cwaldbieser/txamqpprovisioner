@@ -10,6 +10,18 @@ To use the :py:class:`~txamqpprovisioner.o365_provisioner.O365Provisioner`
 backend, set the *provisioner* option under the APPLICATION section to
 **o365_provisioner**.
 
+----------------------
+Account Representation
+----------------------
+
+The O365 provisioner makes assumptions about how accounts are represented.
+The provisioner assumes that the **userPrincipalName** of the remote account
+will be "*subject-id@domain*".  This decision is made in the 
+:py:meth:`~txamqpprovisioner.o365_provisioner.O365Provisioner.get_match_value_from_remote_account`
+and
+:py:meth:`~txamqpprovisioner.o365_provisioner.O365Provisioner.get_match_value_from_local_subject`
+methods of the :py:class:`txamqpprovisioner.o365_provisioner.O365Provisioner` class.
+
 -------------
 Configuration
 -------------
@@ -19,6 +31,21 @@ The options for the o365 provisioner are:
 * **client_id** - The client ID for the tenant.
 * **domain** - The domain the tenant serves (e.g. lafayette.edu).
 * **license_map** - A mapping from group names to license SKUs (see below).
+
+Example:
+
+.. code:: ini
+
+    [PROVISIONER]
+    log_level = DEBUG
+    client_id = 01234567-0123-0123-0123-1234567890ab
+    client_secret = CLIENT-SECRET 
+    domain = example.org
+    endpoint = tls:host=graph.microsoft.com:port=443
+    url_prefix = https://graph.microsoft.com/v1.0
+    provision_group = app:o365:policies:o365
+    unmanaged_logins = admin@example.org
+
 
 """""""""""""""
 The License Map

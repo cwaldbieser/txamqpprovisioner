@@ -4,6 +4,14 @@ Glossary
 
 .. glossary::
 
+    changelog consumer
+
+        A component that reads the Internet 2 Grouper change log and emits events
+        corresponding to each change.  For example, if a subject is added to a
+        particular group, the changelog consumer will emit this event to an 
+        external component.  Changelog consumers should keep track of the events
+        they emit and take care not to repeat events from the change log.
+
     Directory Information Tree
     DIT
         A tree-like structure an LDAP service uses to represent information to
