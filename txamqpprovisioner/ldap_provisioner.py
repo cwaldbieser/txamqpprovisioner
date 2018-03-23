@@ -120,7 +120,7 @@ class LDAPProvisioner(object):
         provision_user = bool(int(config.get('provision_user', 0)))
         provision_group = bool(int(config.get('provision_group', 0)))
         if (not provision_user) and (not provision_group):
-            log.error("Must provision enable at least one of 'PROVISIONER.provision_user' or `PROVISIONER.provision_group`.")
+            log.error("Must enable at least one of 'PROVISIONER.provision_user' or `PROVISIONER.provision_group`.")
             sys.exit(1) 
         self.provision_user = provision_user
         self.provision_group = provision_group
