@@ -7,6 +7,12 @@ import jinja2
 from textwrap import dedent
 import traceback
 import attr
+from ldap_utils import escape_filter_chars, normalize_dn
+from ldaptor.protocols import pureldap
+from ldaptor.protocols.ldap import ldapclient, ldapsyntax
+from ldaptor.protocols.ldap.distinguishedname import DistinguishedName, RelativeDistinguishedName
+from ldaptor.protocols.ldap.distinguishedname import unescape as unescapeDN
+from ldaptor.protocols.ldap import ldaperrors
 from six import iteritems
 from twisted.internet import defer, task
 from twisted.internet.defer import (
@@ -68,6 +74,7 @@ class ADAccountProvisioner(object):
     bind_dn = None
     bind_passwd = None
     base_dn = None
+    search_filter = None
     account_template_path = None
     account_template_ = None
 
@@ -95,6 +102,7 @@ class ADAccountProvisioner(object):
                 self.bind_dn = config["bind_dn"]
                 self.bind_passwd = config["bind_passwd"]
                 self.base_dn = config["base_dn"]
+                self.search_filter = config.get('filter', None)
                 self.account_template_path = config["account_template"]
             except KeyError as ex:
                 raise OptionMissingError(
@@ -111,7 +119,11 @@ class ADAccountProvisioner(object):
         """
         Parse the account template.
         """
-        pass
+        jinja2_env = jinja2.Environment(trim_blocks=True, lstrip_blocks=True)
+        #jinja2_env.filters['equote'] = escape_quote
+        account_template_path = self.account_template_path
+        with open(self.account_template_path, "r") as f:
+            self.account_template_ = jinja2_env.from_string(f.read())
 
     @inlineCallbacks                                                   
     def provision(self, amqp_message):             
@@ -179,6 +191,20 @@ class ADAccountProvisioner(object):
         base DN and any extra filter.
         """
         log = self.log
+        log.debug("Attempting to get DNs of all enabled entries.")
+        endpoint_s = self.endpoint_s
+        bind_dn = self.bind_dn
+        bind_passwd = self.bind_passwd
+        base_dn = self.base_dn
+        search_filter = self.search_filter
+        reactor = self.reactor
+        e = clientFromString(reactor, endpoint_str)
+        client = yield connectProtocol(e, LDAPClient())
+        yield client.startTLS()
+        yield client.bind(bind_dn, bind_passw)
+        o = LDAPEntry(client, base_dn)
+        # TODO: Add lockoutTime to search filter.
+        results = yield o.search(filterText=search_filter, attributes=None) 
 
     def compose_account_(self, subject, attributes):
         """
