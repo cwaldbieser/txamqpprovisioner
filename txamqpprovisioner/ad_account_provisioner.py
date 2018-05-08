@@ -13,6 +13,10 @@ from ldaptor.protocols.ldap import ldapclient, ldapsyntax
 from ldaptor.protocols.ldap.distinguishedname import DistinguishedName, RelativeDistinguishedName
 from ldaptor.protocols.ldap.distinguishedname import unescape as unescapeDN
 from ldaptor.protocols.ldap import ldaperrors
+from ldaptor.protocols import (
+    pureber,
+    pureldap
+)
 from six import iteritems
 from twisted.internet import defer, task
 from twisted.internet.defer import (
@@ -34,6 +38,12 @@ from interface import (
 )
 from utils import get_plugin_factory
 
+def escape_quote(s):
+    """
+    Escape quotes for use in JSON strings.
+    """
+    return s.replace('"', r'\"')
+
 
 @attr.attrs
 class ParsedSubjectMessage(object):
@@ -51,7 +61,30 @@ class ParsedSyncMessage(object):
     attributes = attr.attrib(default=attr.Factory(dict))
 
 
+class LDAPClientManager(object):
+    """
+    Manage an LDAP client and unbind when done with the
+    connection.
 
+    If the `active` flag is False, don't unbind.  This is useful when you are
+    using an existing client and don't want to inject a bunch of conditional
+    logic into your code.
+    """
+    active = False
+    client_ = None
+    def __init__(self, client, active=True):
+        self.client_ = client
+        self.active = active
+
+    def __enter__(self):
+        return self.client_
+
+    def __exit__(self, ex_type, ex_value, tb):
+        if self.active:
+            self.client_.unbind()
+        return True
+
+        
 class ADAccountProvisionerFactory(object):
     implements(IPlugin, IProvisionerFactory)
     tag = "override_this_tag"
@@ -120,7 +153,7 @@ class ADAccountProvisioner(object):
         Parse the account template.
         """
         jinja2_env = jinja2.Environment(trim_blocks=True, lstrip_blocks=True)
-        #jinja2_env.filters['equote'] = escape_quote
+        jinja2_env.filters['equote'] = escape_quote
         account_template_path = self.account_template_path
         with open(self.account_template_path, "r") as f:
             self.account_template_ = jinja2_env.from_string(f.read())
@@ -185,33 +218,59 @@ class ADAccountProvisioner(object):
         raise Exception("Could not parse message: {}".format(msg))
 
     @inlineCallbacks
-    def get_all_enabled_entries_(self):
+    def get_ldap_client_(self):
+        """
+        Get an authenticated LDAP client.
+        """
+        endpoint_s = self.endpoint_s
+        bind_dn = self.bind_dn
+        bind_passwd = self.bind_passwd
+        base_dn = self.base_dn
+        reactor = self.reactor
+        e = clientFromString(reactor, endpoint_str)
+        client = yield connectProtocol(e, ldapclient.LDAPClient())
+        yield client.startTLS()
+        yield client.bind(bind_dn, bind_passwd)
+        defer.returnValue(client)
+
+    @inlineCallbacks
+    def get_all_enabled_entries_(self, client=None):
         """
         Return a set of the DNs of all the enabled entries bounded by the
         base DN and any extra filter.
         """
         log = self.log
         log.debug("Attempting to get DNs of all enabled entries.")
-        endpoint_s = self.endpoint_s
-        bind_dn = self.bind_dn
-        bind_passwd = self.bind_passwd
-        base_dn = self.base_dn
-        search_filter = self.search_filter
-        reactor = self.reactor
-        e = clientFromString(reactor, endpoint_str)
-        client = yield connectProtocol(e, LDAPClient())
-        yield client.startTLS()
-        yield client.bind(bind_dn, bind_passw)
-        o = LDAPEntry(client, base_dn)
-        # TODO: Add lockoutTime to search filter.
-        results = yield o.search(filterText=search_filter, attributes=None) 
+        if self.search_filter is None:
+            search_filter = "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"
+        else:
+            search_filter = "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)){})".format(self.search_filter)
+        if client is None:
+            client = yield get_ldap_client_()
+        o = ldapsyntax.LDAPEntry(client, base_dn)
+        results = yield o.search(filterText=search_filter, attributes=None)
+        dn_set = set([])
+        for entry in results:
+            dn_set.add(entry.dn)
+        defer.returnValue(dn_set)
 
     def compose_account_(self, subject, attributes):
         """
         Create an internal account representation based on the subject and/or
         attributes by using the configured template.
+
+        The composed account must be a mapping with the following keys:
+        * dn
+        * userPrincipalName
         """
         log = self.log
+        account_template = self.account_template_
+        subject_info = dict(subject=subject, attributes=attributes)
+        string_rep = account_template.render(subject_info)
+        account = commentjson.parse(string_rep)
+        assert "dn" in account, "Account template must create a 'dn' key."
+        assert "userPrincipalName" in account, "Account template must create a 'userPrincipalName' key."
+        return account
 
     @inlineCallbacks
     def sync_members(self, subjects, attrib_map):
@@ -223,22 +282,54 @@ class ADAccountProvisioner(object):
         reactor = self.reactor
         subject_list = [s.lower() for s in subjects]
         subject_list.sort()
-        dn_set = yield self.get_all_enabled_entries()
-        for subject in subject_list:
-            attributes = attrib_map[subject]
-            account = self.compose_account(subject, attritbutes)
-            dn = account['dn']
-            yield self.provision_subject_(account)
-            dn_set.discard(dn)
-        for dn in dn_set:
-            yield self.disable_dn(dn) 
+        client = yield self.get_ldap_client_()
+        with LDAPClientManager(client, active=True) as c:
+            dn_set = yield self.get_all_enabled_entries(client=c)
+            for subject in subject_list:
+                attributes = attrib_map[subject]
+                account = self.compose_account_(subject, attritbutes)
+                dn = account['dn']
+                yield self.provision_subject_(account, client=c)
+                dn_set.discard(dn)
+            for dn in dn_set:
+                yield self.disable_dn_(dn, client=c) 
 
     @inlineCallbacks
-    def provision_subject_(self, account):
+    def provision_subject_(self, account, client=None):
         """
         Provision subject from internal account representation.
         """
         log = self.log
+        attribs = {}
+        dn = None
+        for attrib, value in account.items():
+            if attrib == 'dn':
+                dn = value
+                continue
+            attribs.setdefault(attrib, set([])).add(value)
+        if dn is None:
+            raise Exception("Template needs to include `dn`!")
+        ldap_attrs = []
+        for attrib, values in attribs.items():
+            ldap_attrib_type = pureldap.LDAPAttributeDescription(attrib)
+            l = []
+            for value in values:
+                if (isinstance(value, unicode)):
+                    value = value.encode('utf-8')
+                l.append(pureldap.LDAPAttributeValue(value))
+            ldap_values = pureber.BERSet(l)
+            ldap_attrs.append((ldap_attrib_type, ldap_values))
+        op = pureldap.LDAPAddRequest(
+            entry=str(dn),
+            attributes=ldap_attrs)
+        log.debug("LDAP ADD request: {add_req}", add_req=repr(op))
+        unbind = False
+        if client is None:
+            client = yield self.get_ldap_client_()
+            unbind = True
+        with LDAPClientManager(client, active=unbind) as c:
+            response = yield c.send(op)
+        log.debug("LDAP ADD response: {add_resp}", add_resp=repr(response))
 
     @inlineCallbacks
     def provision_subject(self, subject, attributes):
@@ -253,11 +344,30 @@ class ADAccountProvisioner(object):
         yield self.provision_subject_(account)
 
     @inlineCallbacks
-    def deprovision_subject_(self, dn):
+    def disable_dn_(self, dn, client=None):
         """
         Deprovision subject based on DN.
         """
         log = self.log
+        unbind = False
+        if client is None:
+            client = yield self.get_ldap_client_()
+            unbind = True
+        with LDAPClientManager(client, active=unbind) as c:
+            o = ldapclient.LDAPClient(c, dn)
+            results = yield o.search(filterText=self.search_filter, attributes=('userAccountControl',))
+            if len(results) == 1:
+                entry = results[0]
+                ADS_UF_ACCOUNTDISABLE = 0x00000002
+                user_account_control = int(list(entry['userAccountControl'])[0])
+                user_account_control = (user_account_control | ADS_UF_ACCOUNTDISABLE)
+                mod = delta.ModifyOp(
+                    dn,
+                    [
+                        delta.Replace('userAccountControl', ["{}".format(user_account_control)]),
+                    ])
+                l = mod.asLDAP()
+                response = yield client.send(l)
 
     @inlineCallbacks
     def deprovision_subject(self, subject, attributes):
@@ -266,31 +376,7 @@ class ADAccountProvisioner(object):
         """
         log = self.log
         log.debug("Entered deprovision_subject().")
-        account = self.compose_account(subject, attritbutes)
+        account = self.compose_account_(subject, attritbutes)
         dn = account['dn']
-        yield self.deprovision_subject_(dn)
+        yield self.disable_dn_(dn)
         
-
-@inlineCallbacks
-def delay(reactor, seconds):
-    """
-    A Deferred that fires after `seconds` seconds.
-    """
-    yield task.deferLater(reactor, seconds, lambda : None)
-
-@inlineCallbacks
-def delayUntil(reactor, t):
-    """
-    Delay until time `t`.
-    If `t` is None, don't delay.
-
-    `params t`: A datetime object or None
-    """
-    if t is None:
-        returnValue(None)
-    instant = datetime.datetime.today()
-    if instant < t:
-        td = t - instant
-        delay_seconds = td.total_seconds()
-        yield task.deferLater(reactor, delay_seconds, lambda : None)
-    
