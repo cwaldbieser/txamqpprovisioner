@@ -456,8 +456,14 @@ class ADAccountProvisioner(object):
         """
         log = self.log
         log.info("Entered update_entry_()")
+        updateable_attribs = {
+            "givenName",
+            "displayName",
+            "sn",
+            "userAccountControl",
+        }
         attribs = [delta.Replace(prop, list(values)) 
-            for prop, values in account.items() if prop != "dn"]  
+            for prop, values in account.items() if prop in updateable_attribs]  
         log.debug("attribs: {attribs}", attribs=attribs)
         try:
             dn = account['dn']
