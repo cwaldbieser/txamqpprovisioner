@@ -28,3 +28,6 @@ duo_provisioner_factory = DuoSecurityProvisionerFactory()
 
 from txamqpprovisioner.zoom_provisioner import ZoomProvisionerFactory
 zoom_provisioner_factory = ZoomProvisionerFactory()
+
+from txamqpprovisioner.ad_account_provisioner import ADAccountProvisionerFactory
+ad_account_provisioner_factory = ADAccountProvisionerFactory()

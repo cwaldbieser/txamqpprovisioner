@@ -16,6 +16,7 @@ ipaddress==1.0.18
 Jinja2==2.7.3
 klein==15.0.0
 -e git+https://github.com/twisted/ldaptor.git@4e2b67798b75e0c2b364fc0d9fdf327b0f0ddca4#egg=ldaptor
+pem==17.1.0
 MarkupSafe==0.23
 MySQL-python==1.2.5
 pyasn1==0.3.4
