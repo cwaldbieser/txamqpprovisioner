@@ -516,7 +516,7 @@ class ADAccountProvisioner(object):
             client = yield self.get_ldap_client_()
             unbind = True
         with LDAPClientManager(client, active=unbind) as c:
-            o = ldapclient.LDAPClient(c, dn)
+            o = ldapsyntax.LDAPEntry(c, dn)
             results = yield o.search(filterText=self.search_filter, attributes=('userAccountControl',))
             if len(results) == 1:
                 entry = results[0]
@@ -538,7 +538,7 @@ class ADAccountProvisioner(object):
         """
         log = self.log
         log.debug("Entered deprovision_subject().")
-        account = self.compose_account_(subject, attritbutes)
+        account = self.compose_account_(subject, attributes)
         dn = account['dn']
         yield self.disable_dn_(dn)
         
