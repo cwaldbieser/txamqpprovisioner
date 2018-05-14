@@ -311,11 +311,15 @@ class ADAccountProvisioner(object):
             search_filter = "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)){})".format(self.search_filter)
         if client is None:
             client = yield get_ldap_client_()
+        base_dn = self.base_dn
+        log.debug("Searching: base_dn='{base_dn}', filter='{filter}'", base_dn=base_dn, filter=search_filter)
         o = ldapsyntax.LDAPEntry(client, base_dn)
         results = yield o.search(filterText=search_filter, attributes=None)
+        log.debug("There are {len} search results.", len=len(results))
         dn_set = set([])
         for entry in results:
             dn_set.add(entry.dn)
+        log.debug("Returning {len} DNs.", len=len(dn_set))
         defer.returnValue(dn_set)
 
     def compose_account_(self, subject, attributes):
@@ -350,10 +354,11 @@ class ADAccountProvisioner(object):
         subject_list.sort()
         client = yield self.get_ldap_client_()
         with LDAPClientManager(client, active=True) as c:
-            dn_set = yield self.get_all_enabled_entries(client=c)
+            dn_set = yield self.get_all_enabled_entries_(client=c)
+            log.debug("Enabled entries retrieved.")
             for subject in subject_list:
                 attributes = attrib_map[subject]
-                account = self.compose_account_(subject, attritbutes)
+                account = self.compose_account_(subject, attributes)
                 dn = account['dn']
                 create_hint = (dn in dn_set)
                 yield self.provision_subject_(account, client=c, create_hint=create_hint)
