@@ -17,6 +17,7 @@ Welcome to txamqpprovisioner's documentation!
    running
    pds
    ldap-provisioner
+   ad_account_provisioner
    ssh_provisioner
    rest_provisioner
    http-provisioners/*
