@@ -42,6 +42,7 @@ from interface import (
     IProvisionerFactory,
     IProvisioner,
 )
+from ldap_paged_search import paged_search
 from utils import get_plugin_factory
 
 def iterable_not_string(arg):
@@ -139,6 +140,7 @@ class ADAccountProvisioner(object):
     use_starttls = True
     starttls_hostname = None
     starttls_trust_anchor = None
+    page_size = 100
 
     def load_config(self, config_file, default_log_level, logObserverFactory):
         """                                                             
@@ -169,6 +171,7 @@ class ADAccountProvisioner(object):
                 self.base_dn = config["base_dn"]
                 self.search_filter = config.get('filter', None)
                 self.account_template_path = config["account_template"]
+                self.page_size = int(config.get('page_size', 100))
             except KeyError as ex:
                 raise OptionMissingError(
                     "A required option was missing: '{}:{}'.".format(
@@ -313,8 +316,14 @@ class ADAccountProvisioner(object):
             client = yield get_ldap_client_()
         base_dn = self.base_dn
         log.debug("Searching: base_dn='{base_dn}', filter='{filter}'", base_dn=base_dn, filter=search_filter)
-        o = ldapsyntax.LDAPEntry(client, base_dn)
-        results = yield o.search(filterText=search_filter, attributes=None)
+        results = []
+        yield paged_search(
+            client,
+            self.page_size,
+            lambda x: results.extend(x[1]),
+            base_dn,
+            filterText=search_filter,
+            attributes=None)
         log.debug("There are {len} search results.", len=len(results))
         dn_set = set([])
         for entry in results:
