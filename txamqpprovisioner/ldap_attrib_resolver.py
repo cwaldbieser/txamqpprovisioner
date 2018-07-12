@@ -79,6 +79,9 @@ class LDAPAttributeResolver(object):
     attributes = None
     template_env = None
     filter_template = None
+    ldap_conn_timeout = 30
+    client_ = None
+    client_unbind_id_ = None
 
     @inlineCallbacks
     def resolve_attributes(self, subject):
@@ -126,7 +129,11 @@ class LDAPAttributeResolver(object):
         Returns a Deferred that fires with an asynchronous LDAP client.
         """
         log = self.log
-        base_dn = self.base_dn
+        client = self.client_
+        if not client is None:
+            self.clear_scheduled_unbind_()
+            log.msg("[DEGUB] '{}': Returning existing LDAP client.".format(self.__class__))
+            returnValue(client)
         start_tls = self.start_tls
         endpoint_s = self.endpoint_s
         bind_dn = self.bind_dn
@@ -150,5 +157,30 @@ class LDAPAttributeResolver(object):
             if client.connected:
                 client.unbind()
             raise
+        self.clear_scheduled_unbind_()
+        log.msg("[DEGUB] '{}': Returning new LDAP client.".format(self.__class__))
         returnValue(client)
-        
+
+    def clear_scheduled_unbind_(self):
+        client_unbind_id = self.client_unbind_id_
+        if client_unbind_id is not None:
+            client_unbind_id.cancel()
+            self.client_unbind_id_ = None
+
+    def release_ldap_client_(self):
+        """
+        Schedule LDAP client to be released if it is not used again within the timeout period.
+        """
+        self.clear_scheduled_unbind_()
+        ldap_conn_timeout = self.ldap_conn_timeout
+        reactor = self.reactor
+        self.client_unbind_id_ = reactor.callLater(ldap_conn_timeout, self.unbind_client_)
+       
+    def unbind_client_(self):
+        log = self.log
+        client = self.client_
+        if client is None:
+            return
+        if client.connected:
+            client.unbind() 
+            log.msg("[DEBUG] '{}' LDAP client disconnected.".format(self.__class__))
