@@ -11,6 +11,7 @@ import re
 import struct
 from textwrap import dedent
 import types
+import attr
 import commentjson
 from twisted.conch.client.knownhosts import KnownHostsFile
 from twisted.conch.endpoints import SSHCommandClientEndpoint
@@ -67,14 +68,19 @@ def patch_channel(proto):
     proto.transport.request_exit_status = types.MethodType(request_exit_status, proto.transport)
 
 
-ParsedMessage = namedtuple(
-    'ParsedMessage', 
-    ["action", "group", "subject"])
+@attr.attrs
+class ParsedMessage(object):
+    action = attr.attrib()
+    group = attr.attrib()
+    subject = attr.attrib()
+    
 
-
-ParsedSyncMessage = namedtuple(
-    'ParsedSyncMessage',
-    ["action", "group", "subjects"])
+@attr.attrs
+class ParsedSyncMessage(object):
+    action = attr.attrib()
+    group = attr.attrib()
+    subjects = attr.attrib(default=attr.Factory(list))
+    attributes = attr.attrib(default=attr.Factory(dict))
 
 
 class UnknowActionError(Exception):
@@ -356,7 +362,8 @@ class SSHProvisioner(object):
             return ParsedMessage(action, group, subject)
         elif action == constants.ACTION_MEMBERSHIP_SYNC:
             subjects = doc["subjects"]
-            return ParsedSyncMessage(action, group, subjects)
+            attributes = doc.get('attributes', {})
+            return ParsedSyncMessage(action, group, subjects, attributes)
         else:
             raise UnknownActionError(
                 "Don't know how to handle action '{0}'.".format(msg.action))
@@ -616,7 +623,8 @@ class SSHProvisioner(object):
         # Evaluate command template
         command = self.sync_cmd.render(
             group=target_group, 
-            subjects=msg.subjects)
+            subjects=msg.subjects,
+            attributes=msg.attributes)
         # Create channel with command.
         log.debug("Creating command channel with command: {command}", command=command)
         cmd_protocol = yield self.create_command_channel(command.encode('utf-8'))
@@ -625,11 +633,14 @@ class SSHProvisioner(object):
         transport = cmd_protocol.transport
         ssh_conn = transport.conn
         if command_type == self.CMD_TYPE_INPUT:
+            attributes = msg.attributes
             for subject in msg.subjects:
+                subj_attribs = attributes.get(subject, {})
                 # Evaluate input template
                 data = self.sync_input.render(
                     subject=subject,
-                    group=target_group)
+                    group=target_group,
+                    attributes=subj_attribs)
                 # Write input to channel.
                 cmd_protocol.transport.write(data.encode('utf-8'))
         # Send EOF
