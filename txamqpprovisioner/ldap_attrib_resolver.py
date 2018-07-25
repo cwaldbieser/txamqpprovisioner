@@ -108,9 +108,8 @@ class LDAPAttributeResolver(object):
                 subject=subject) 
             raise
         finally:
-            if client.connected:
-                client.unbind()
-                log.debug("LDAP client ended connection.")
+            self.release_ldap_client_()
+            log.debug("{classname}: Scheduled LDAP client for release.", classname=self.__class__.__name__)
         for n, entry in enumerate(results):
             if n != 0:
                 raise Exception(
@@ -129,10 +128,11 @@ class LDAPAttributeResolver(object):
         Returns a Deferred that fires with an asynchronous LDAP client.
         """
         log = self.log
+        log.debug("{classname}: Entered `get_ldap_client()`. self.id == {instance_id}", classname=self.__class__.__name__, instance_id=id(self))
         client = self.client_
         if not client is None:
             self.clear_scheduled_unbind_()
-            log.msg("[DEGUB] '{}': Returning existing LDAP client.".format(self.__class__))
+            log.debug("{classname}: Cleared scheduled UNBIND; returning existing LDAP client.", classname=self.__class__.__name__)
             returnValue(client)
         start_tls = self.start_tls
         endpoint_s = self.endpoint_s
@@ -142,11 +142,12 @@ class LDAPAttributeResolver(object):
         ep = endpoints.clientFromString(reactor, endpoint_s)
         log.debug("LDAP endpoint: {endpoint}", endpoint=endpoint_s)
         client = yield endpoints.connectProtocol(ep, ldapclient.LDAPClient())
+        self.client_ = client
         log.debug("Client connection established to LDAP endpoint.")
         try:
             if start_tls:
                 yield client.startTLS()
-                log.debug("LDAP client initiated StartTLS.", event_type='ldap_starttls')
+                log.debug("{classname}: LDAP client initiated StartTLS.", event_type='ldap_starttls', classname=self.__class__.__name__)
             if bind_dn and bind_passwd:
                 yield client.bind(bind_dn, bind_passwd)
                 log.debug(
@@ -158,7 +159,7 @@ class LDAPAttributeResolver(object):
                 client.unbind()
             raise
         self.clear_scheduled_unbind_()
-        log.msg("[DEGUB] '{}': Returning new LDAP client.".format(self.__class__))
+        log.debug("'{classname}': Returning new LDAP client.", classname=self.__class__.__name__)
         returnValue(client)
 
     def clear_scheduled_unbind_(self):
@@ -183,4 +184,4 @@ class LDAPAttributeResolver(object):
             return
         if client.connected:
             client.unbind() 
-            log.msg("[DEBUG] '{}' LDAP client disconnected.".format(self.__class__))
+            log.debug("'{classname}' LDAP client disconnected.", classname=self.__class__.__name__)
