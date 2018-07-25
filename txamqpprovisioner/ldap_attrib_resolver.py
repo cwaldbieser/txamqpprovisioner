@@ -154,9 +154,8 @@ class LDAPAttributeResolver(object):
                     "LDAP client BIND as '{bind_dn}'.",
                     event_type='ldap_bind',
                     bind_dn=bind_dn)
-        except:
-            if client.connected:
-                client.unbind()
+        except Exception:
+            self.unbind_client_()
             raise
         self.clear_scheduled_unbind_()
         log.debug("'{classname}': Returning new LDAP client.", classname=self.__class__.__name__)
@@ -180,6 +179,8 @@ class LDAPAttributeResolver(object):
     def unbind_client_(self):
         log = self.log
         client = self.client_
+        self.client_unbind_id_ = None
+        self.client_ = None
         if client is None:
             return
         if client.connected:
