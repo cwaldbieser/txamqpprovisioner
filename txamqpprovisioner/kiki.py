@@ -47,6 +47,7 @@ class KikiProvisionerFactory(object):
     implements(IPlugin, IProvisionerFactory)
 
     tag = "kiki"
+    log = None
     opt_help = "A provisioner delivery service provisioner."
     opt_usage = "This plugin does not support any options."
 
@@ -54,7 +55,9 @@ class KikiProvisionerFactory(object):
         """
         Create an object that implements IProvisioner
         """
-        return KikiProvisioner()
+        provisioner = KikiProvisioner()
+        provisioner.log = self.log
+        return provisioner
 
 
 class KikiProvisioner(object):
@@ -153,6 +156,7 @@ class KikiProvisioner(object):
                 log.debug("Resolving attributes for message ...")
                 yield parsed.resolve_attributes(self.attrib_resolver)
             if group_attributes_required:
+                log.debug("Resolving group attributes for message ...")
                 yield parsed.resolve_group_attributes(self.group_attrib_resolver)
             log.debug("Delivering message to exchange ...")
             yield self.send_message(target_route_key, parsed)
@@ -203,11 +207,13 @@ class KikiProvisioner(object):
         Configure the component that will be used to perform attribute
         resolution.
         """
+        log = self.log
         factory = get_plugin_factory(tag, IAttributeResolverFactory)
         if factory is None:
             raise UnknownAttributeResolverError(
                 "The attribute resolver identified by tag '{0}' is unknown.".format(
                     tag))
+        factory.log = log
         attrib_resolver = factory.generate_attribute_resolver(config_parser)
         attrib_resolver.log = self.log
         attrib_resolver.reactor = self.reactor
@@ -227,8 +233,9 @@ class KikiProvisioner(object):
             raise UnknownAttributeResolverError(
                 "The attribute resolver identified by tag '{0}' is unknown.".format(
                     tag))
+        factory.log = log
         section = "RDBMS Group Attribute Resolver"
-        attrib_resolver = factory.generate_group_attribute_resolver(config_parser, section=section)
+        attrib_resolver = factory.generate_attribute_resolver(config_parser, section=section)
         attrib_resolver.log = self.log
         attrib_resolver.reactor = self.reactor
         self.group_attrib_resolver = attrib_resolver
@@ -242,6 +249,7 @@ class KikiProvisioner(object):
         if factory is None:
             raise UnknownRouterError(
                 "The router identified by tag '{0}' is unknown.".format(tag))
+        factory.log = self.log
         router = factory.generate_router(config_parser)
         router.log = self.log
         self.router = router 

@@ -18,6 +18,7 @@ import attr
 class JSONRouterFactory(object):
     implements(IPlugin, IRouterFactory)
     tag = "json_router"
+    log = None
 
     def generate_router(self, config_parser):
         """
@@ -26,59 +27,58 @@ class JSONRouterFactory(object):
         section = "JSON Router"
         options = config_parser.options(section)
         path = config_parser.get(section, "json_file")
-        router = JSONRouter(path) 
+        router = JSONRouter() 
+        router.log = self.log
+        router.create_route_map(path)
         return router
 
 
 class JSONRouter(object):
+    """
+    JSON routing map format:
+
+    [
+        {
+            "name": "Splunk",
+            "stem": "lc:app:splunk:exports",
+            "recursive": false,
+            "include_attributes": false,
+            "include_group_attributes": false,
+            "route_key": "splunk"
+        },
+        {
+            "name": "VPN",
+            "group": "lc:app:vpn:vpn",
+            "include_attributes": false,
+            "route_key": "vpn"
+        },
+        {
+            "name": "OrgSync",
+            "stem": "lc:app:orgsync:exports",
+            "include_attributes": true,
+            "allow_actions": ["add", "delete", "update"],
+            "route_key": "orgsync"
+        },
+        {
+            "name": "Default",
+            "group": "*",
+            "discard": true
+        }
+    ]
+    """
     implements(IRouter)
     log = None
 
-    def __init__(self, path):
-        """
-        JSON routing map format:
-
-        [
-            {
-                "name": "Splunk",
-                "stem": "lc:app:splunk:exports",
-                "recursive": false,
-                "include_attributes": false,
-                "include_group_attributes": false,
-                "route_key": "splunk"
-            },
-            {
-                "name": "VPN",
-                "group": "lc:app:vpn:vpn",
-                "include_attributes": false,
-                "route_key": "vpn"
-            },
-            {
-                "name": "OrgSync",
-                "stem": "lc:app:orgsync:exports",
-                "include_attributes": true,
-                "allow_actions": ["add", "delete", "update"],
-                "route_key": "orgsync"
-            },
-            {
-                "name": "Default",
-                "group": "*",
-                "discard": true
-            }
-        ]
-        """
-        with open(path, "r") as f:
-            doc = load_json(f)
-        self.create_route_map(doc)
-
-    def create_route_map(self, doc):
+    def create_route_map(self, path):
         """
         Create the internal routing map from the JSON representiation.
         """
         log = self.log
+        with open(path, "r") as f:
+            doc = load_json(f)
         routes = []
         for n, entry in enumerate(doc):
-            route_entry = RouteEntry(entry)
+            route_entry = RouteEntry.from_dict(entry)
             validate_route_entry_(route_entry)
             routes.append(route_entry)
         self.routes = routes
@@ -113,7 +113,7 @@ class JSONRouter(object):
                         break
                     else:
                         route_keys.append(route.route_key)
-                        log.debug("Added route key: '{route_key}'", route_key)
+                        log.debug("Added route key: '{route_key}'", route_key=route.route_key)
                         attributes_required = attributes_required or route.include_attributes
                         group_attributes_required = group_attributes_required or route.include_group_attributes
                         break
@@ -160,14 +160,29 @@ class JSONRouteEntryError(Exception):
 
 @attr.attrs
 class RouteEntry(object):
-    group = attr.attrib()        
-    stem = attr.attrib()
-    route_key = attr.attrib()
+    group = attr.attrib(default=None)        
+    stem = attr.attrib(default=None)
+    route_key = attr.attrib(default=None)
     allowed_actions = attr.attrib(default=attr.Factory(set))
     recursive = attr.attrib(default=False, converter=bool)
     include_attributes = attr.attrib(default=False, converter=bool)
     include_group_attributes = attr.attrib(default=False, converter=bool)
     discard = attr.attrib(default=False, converter=bool)
+
+    @classmethod
+    def from_dict(cls, d):
+        fields = set([
+            'group', 
+            'stem', 
+            'route_key',
+            'allowed_actions',
+            'recursive',
+            'include_attributes',
+            'include_group_attributes',
+            'discard',
+        ])
+        props = dict((k, d[k]) for k in d if k in fields)
+        return cls(**props)
 
 
 def validate_route_entry_(entry):

@@ -33,6 +33,7 @@ def require_option(cp, section, option):
 class LDAPAttributeResolverFactory(object):
     implements(IPlugin, IAttributeResolverFactory)
     tag = "ldap_attrib_resolver"
+    log = None
 
     def generate_attribute_resolver(self, config_parser):
         """

@@ -3,6 +3,7 @@ from zope.interface import Interface, Attribute
 
 class IProvisionerFactory(Interface):
     tag = Attribute('String used to identify the plugin factory.')
+    log = Attribute("A logger.")
     opt_help = Attribute('String description of the plugin.')
     opt_usage = Attribute('String describes how to provide arguments for factory.')
 
@@ -51,6 +52,7 @@ class IMessageParser(Interface):
 
 class IAttributeResolverFactory(Interface):
     tag = Attribute('String used to identify the plugin factory.')
+    log = Attribute('A logger.')
 
     def generate_attribute_resolver(config_parser, section=None):
         """
@@ -89,6 +91,7 @@ class IGroupMapper(Interface):
 
 class IRouterFactory(Interface):
     tag = Attribute('String used to identify the plugin factory.')
+    log = Attribute('A logger.')
 
     def generate_router(config_parser):
         """

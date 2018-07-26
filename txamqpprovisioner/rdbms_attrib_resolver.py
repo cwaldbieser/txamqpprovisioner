@@ -15,11 +15,13 @@ from interface import (
 class RDBMSAttributeResolverFactory(object):
     implements(IPlugin, IAttributeResolverFactory)
     tag = "rdbms_attrib_resolver"
+    log = None
 
     def generate_attribute_resolver(self, config_parser, section=None):
         """
         Create an object that implements IAttributeResolver.
         """
+        log = self.log
         if section is None:
             section = "RDBMS Attribute Resolver"
         resolver = RDBMSAttributeResolver()
@@ -35,6 +37,8 @@ class RDBMSAttributeResolverFactory(object):
                 driver_options[opt] = config_parser.get(section, opt)
         if driver == 'sqlite3':
             driver_options['check_same_thread'] = False
+        if 'port' in driver_options:
+            driver_options['port'] = int(driver_options['port'])
         dbpool = adbapi.ConnectionPool(driver, **driver_options)
         resolver.dbpool = dbpool
         resolver.query = query
@@ -55,11 +59,16 @@ class RDBMSAttributeResolver(object):
         Return a Deferred that fires with the attributes for a subject.
         Atributes are a mapping of keys to a list of values.
         """
+        log = self.log
+        log.debug("Subject of attributes: {subject}", subject=subject)
+        log.debug("Query: {query}", query=self.query)
         if self.named_param is not None:
             args = {self.named_params: subject}
         else:
             args = [subject]
+        log.debug("Query args: {args}", args=args)
         rows = yield self.dbpool.runQuery(self.query, args)
+        log.debug("Query completed successfully.")
         attribs = {}
         for attrib, value in rows:
             values = attribs.get(attrib)

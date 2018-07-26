@@ -127,6 +127,7 @@ class AMQPProvisionerService(Service):
             log.error(msg)
             d = self.reactor.callLater(0, self.reactor.stop)
             raise Exception(msg)
+        provisioner_factory.log = self.log
         provisioner = provisioner_factory.generateProvisioner()
         provisioner.reactor = self.reactor
         provisioner.service_state = service_state
