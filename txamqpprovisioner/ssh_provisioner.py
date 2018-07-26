@@ -81,6 +81,7 @@ class ParsedSyncMessage(object):
     group = attr.attrib()
     subjects = attr.attrib(default=attr.Factory(list))
     attributes = attr.attrib(default=attr.Factory(dict))
+    group_attributes = attr.attrib(default=attr.Factory(dict))
 
 
 class UnknowActionError(Exception):
@@ -363,7 +364,8 @@ class SSHProvisioner(object):
         elif action == constants.ACTION_MEMBERSHIP_SYNC:
             subjects = doc["subjects"]
             attributes = doc.get('attributes', {})
-            return ParsedSyncMessage(action, group, subjects, attributes)
+            group_attributes = doc.get('group_attributes', {})
+            return ParsedSyncMessage(action, group, subjects, attributes, group_attributes)
         else:
             raise UnknownActionError(
                 "Don't know how to handle action '{0}'.".format(msg.action))
@@ -624,7 +626,8 @@ class SSHProvisioner(object):
         command = self.sync_cmd.render(
             group=target_group, 
             subjects=msg.subjects,
-            attributes=msg.attributes)
+            attributes=msg.attributes,
+            group_attributes=msg.group_attributes)
         # Create channel with command.
         log.debug("Creating command channel with command: {command}", command=command)
         cmd_protocol = yield self.create_command_channel(command.encode('utf-8'))
