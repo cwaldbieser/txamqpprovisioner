@@ -87,7 +87,6 @@ class IGroupMapper(Interface):
         which `subject` is a member.
         """
 
-
 class IRouterFactory(Interface):
     tag = Attribute('String used to identify the plugin factory.')
 

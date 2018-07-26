@@ -127,6 +127,7 @@ class BasicFullSyncMsg(BaseMsg):
     membership in their provisioning targets.
     """
     action = constants.ACTION_MEMBERSHIP_SYNC
+    group_attributes = None
 
     def __init__(self, group, subjects):
         self.group = group
@@ -154,3 +155,17 @@ class BasicFullSyncMsg(BaseMsg):
             attributes = yield resolver.resolve_attributes(subject)
             attrib_map[subject] = dict(attributes)
         self.attributes = attrib_map
+
+    @defer.inlineCallbacks
+    def resolve_group_attributes(self, resolver):
+        """
+        Returns a Deferred that fires when group attributes have been resolved
+        for this message.
+        The way the attributes are stored in the message and serialized later
+        is up to the message class.  The resulting message should be understood
+        by downstream provisioners.
+        """
+        group = self.group
+        attributes = yield resolver.resolve_attributes(group)
+        self.group_attributes = attributes
+        

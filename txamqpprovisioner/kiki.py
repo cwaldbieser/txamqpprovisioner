@@ -60,6 +60,19 @@ class KikiProvisionerFactory(object):
 class KikiProvisioner(object):
     implements(IProvisioner)
 
+    config = None
+    attrib_resolver = None
+    group_attrib_resolver = None
+    group_mapper = None
+    router = None
+    parser_mappings = None
+    pub_exchange = None
+    pub_vhost = None
+    pub_user = None
+    pub_passwd = None
+    pub_endpoint_s = None
+    pub_spec = None
+    pub_channel = None
     service_state = None
     reactor = None
     log = None
@@ -85,6 +98,9 @@ class KikiProvisioner(object):
             # Load and configure the attribute resolver.
             attrib_resolver_tag = get_config_opt(config, section, "attrib_resolver")
             self.install_attribute_resolver(attrib_resolver_tag, config_parser)
+            # Load and configure the group attribute resolver.
+            group_attrib_resolver_tag = config.get("group_attrib_resolver", None)
+            self.install_group_attribute_resolver(group_attrib_resolver_tag, config_parser)
             # Load parse map.
             parser_map_filename = get_config_opt(config, section, "parser_map")
             self.load_parser_map(parser_map_filename)
@@ -125,18 +141,19 @@ class KikiProvisioner(object):
                 log.debug(
                     "Message did not produce any groups of interest.")
                 returnValue(None)
-            target_route_key, attributes_required = yield self.get_route_info(parsed, groups)
-            log.debug(
-                "Routing results: route_key={route_key}, "
-                "attributes_required={attributes_required}",
-                route_key=target_route_key,
-                attributes_required=attributes_required)
+            route_info = yield self.get_route_info(parsed, groups)
+            target_route_key = route_info.route_key
+            attributes_required = route_info.attributes_required
+            group_attributes_required = route_info.group_attributes_required
+            log.debug( "Routing results: {route_info}", route_info=route_info)
             if target_route_key is None:
                 log.debug("Discarding message based on route.")
                 returnValue(None)
             if attributes_required:
                 log.debug("Resolving attributes for message ...")
                 yield parsed.resolve_attributes(self.attrib_resolver)
+            if group_attributes_required:
+                yield parsed.resolve_group_attributes(self.group_attrib_resolver)
             log.debug("Delivering message to exchange ...")
             yield self.send_message(target_route_key, parsed)
         except Exception as ex:
@@ -195,6 +212,25 @@ class KikiProvisioner(object):
         attrib_resolver.log = self.log
         attrib_resolver.reactor = self.reactor
         self.attrib_resolver = attrib_resolver
+
+    def install_group_attribute_resolver(self, tag, config_parser):
+        """
+        Configure the component that will be used to perform group attribute
+        resolution.
+        """
+        log = self.log
+        if tag is None:
+            log.info("No Group Attribute resolver was configured.")
+            return
+        factory = get_plugin_factory(tag, IAttributeResolverFactory)
+        if factory is None:
+            raise UnknownAttributeResolverError(
+                "The attribute resolver identified by tag '{0}' is unknown.".format(
+                    tag))
+        attrib_resolver = factory.generate_group_attribute_resolver(config_parser)
+        attrib_resolver.log = self.log
+        attrib_resolver.reactor = self.reactor
+        self.group_attrib_resolver = attrib_resolver
 
     def install_router(self, tag, config_parser):
         """
@@ -320,7 +356,10 @@ class KikiProvisioner(object):
         """
         Get the target route information  based on the instructions parsed from the 
         original message.
-        Returns `RouteData` named tuple.
+        Returns an object with properties:
+            - route_key
+            - attributes_required
+            - group_attributes_required
         """
         route_info = yield self.router.get_route(instructions, groups)
         returnValue(route_info)
@@ -383,11 +422,3 @@ def get_config_opt(config, section, opt):
         raise OptionMissingError(
             "A require option was missing: '{0}:{1}'.".format(
                 section, ex.args[0]))
-    except KeyError as ex:
-        raise OptionMissingError(
-            "A require option was missing: '{0}:{1}'.".format(
-                section, ex.args[0]))
-
-
-
-

@@ -12,6 +12,7 @@ from errors import (
     NoMatchingRouteError,
 )
 from kikiroute import RouteInfo
+import attr
 
 
 class JSONRouterFactory(object):
@@ -43,6 +44,7 @@ class JSONRouter(object):
                 "stem": "lc:app:splunk:exports",
                 "recursive": false,
                 "include_attributes": false,
+                "include_group_attributes": false,
                 "route_key": "splunk"
             },
             {
@@ -76,13 +78,14 @@ class JSONRouter(object):
         log = self.log
         routes = []
         for n, entry in enumerate(doc):
-            route_entry = RouteEntry(n, entry)
+            route_entry = RouteEntry(entry)
+            validate_route_entry_(route_entry)
             routes.append(route_entry)
         self.routes = routes
 
     def get_route(self, instructions, groups):
         """
-        Return a Deferred that fires with a RouteInfo
+        Return a Deferred that fires with a RouteEntry
         object or raises a NoMatchingRouteError.
         If a message should be discarded, the route should
         map to None.
@@ -92,11 +95,16 @@ class JSONRouter(object):
         routes = self.routes
         route_keys = []
         attributes_required = False
+        group_attributes_required = False
         for group in groups:
             matched = False
             for route in routes:
-                route.log = self.log
-                if route.match(group, action):
+                log.debug(
+                    "Testing group '{group}' and action '{action}' against possible routes.",
+                    group=group,
+                    action=action)
+                if self.match_route_(route, group, action):
+                    log.debug("Matched route entry: {route_entry}", route_entry=route)
                     matched = True
                     if route.discard:
                         log.debug(
@@ -105,103 +113,43 @@ class JSONRouter(object):
                         break
                     else:
                         route_keys.append(route.route_key)
+                        log.debug("Added route key: '{route_key}'", route_key)
                         attributes_required = attributes_required or route.include_attributes
+                        group_attributes_required = group_attributes_required or route.include_group_attributes
                         break
             if not matched:
                 raise NoMatchingRouteError(
                     "There is not route that matches group '{0}'.".format(
                         group))
         if len(route_keys) == 0:
-            route_info = RouteInfo(None, False)
+            route_info = RouteInfo()
         else:
-            # Remove duplicate route keys.
-            routekey_set = set([])
-            temp = []
-            for k in route_keys:
-                if not k in routekey_set:
-                    temp.append(k)
-                    routekey_set.add(k)
-            route_keys = temp
-            del temp
+            route_keys = list(set(route_keys))
+            route_keys.sort()
             route_info = RouteInfo(
                 '.'.join(route_keys),
-                attributes_required)
+                attributes_required,
+                group_attributes_required
+            )
         return defer.succeed(route_info)
 
-
-class RouteEntry(object):
-    log = None
-
-    def __init__(self, n, props):
-        self.index = n + 1
-        if "group" in props and "stem" in props:
-            msg = (
-                "Cannot have both 'group' and 'stem' patterns "
-                "in a route entry number {0}.").format(n+1)
-            raise JSONRouteEntryError(msg)
-        if "group" not in props and "stem" not in props:
-            msg = (
-                "Must have either 'group' or 'stem' pattern "
-                "in route entry number {0}.").format(n+1)
-            raise JSONRouteEntryError(msg)
-        self.group = props.get("group", None)
-        self.stem = props.get("stem", None)
-        if "allowed_actions" in props:
-            self.allowed_actions = set(action.lower() for action in props["allowed_actions"])
-        else:
-            self.allowed_actions = None
-        if self.stem is not None and not self.stem.endswith(":"):
-            self.stem = "{0}:".format(self.stem)
-        if self.stem is None and "recursive" in props:
-            msg = (
-                "'recursive' property is only valid for 'stem' pattern"
-                "in route entry number {0}.").format(n+1)
-            raise JSONRouteEntryError(msg)
-        self.recursive = bool(props.get("recursive", False))
-        self.include_attributes = bool(props.get("include_attributes", False))
-        self.discard = bool(props.get("discard", False))
-        self.route_key = props.get("route_key", None)
-        if self.route_key is None and not self.discard:
-            msg = (
-                "Missing 'route_key' "
-                "in route entry number {0}.").format(n+1)
-            raise JSONRouteEntryError(msg)
-        if self.discard and self.include_attributes:
-            msg = (
-                "'include_attributes' and 'discard' are mutally exclusive "
-                "in route entry number {0}.").format(n+1)
-            raise JSONRouteEntryError(msg)
-        if self.discard and self.route_key is not None:
-            msg = (
-                "'route_key' and 'discard' are mutally exclusive "
-                "in route entry number {0}.").format(n+1)
-            raise JSONRouteEntryError(msg)
-
-    def match(self, group, action):
+    def match_route_(self, route_entry, group, action):
         """
         Return True if the group matches the entry; False otherwise.
         """
         log = self.log
-        allowed_actions = self.allowed_actions
-        log.debug(
-            "Testing route for group '{group}', action '{action}'",
-            group=group, 
-            action=action)
-        log.debug(
-            "Route group: '{group}', stem: '{stem}', allowed_actions: {allowed_actions}",
-            group=self.group,
-            stem=self.stem,
-            allowed_actions=allowed_actions)
-        if self.group == group or self.group == "*":
-            if (allowed_actions is None) or action.lower() in allowed_actions:
+        allowed_actions = route_entry.allowed_actions
+        log.debug("Candidate entry: {route_entry}", route_entry=route_entry)
+        if route_entry.group == group or route_entry.group == "*":
+            if (len(allowed_actions) == 0) or action in allowed_actions:
                 return True
-        elif self.stem is not None and group.startswith(self.stem):
-            if self.recursive:
-                if (allowed_actions is None) or action.lower() in allowed_actions:
+        elif (route_entry.stem is not None) and group.startswith(route_entry.stem):
+            if route_entry.recursive:
+                if (len(allowed_actions) == 0) or action in allowed_actions:
                     return True
-            suffix = group[len(self.stem):]
+            suffix = group[len(route_entry.stem):]
             if ":" not in suffix:
-                if (allowed_actions is None) or action.lower() in allowed_actions:
+                if (len(allowed_actions) == 0) or action.lower() in allowed_actions:
                     return True
         return False
 
@@ -209,4 +157,62 @@ class RouteEntry(object):
 class JSONRouteEntryError(Exception):
     pass
 
-        
+
+@attr.attrs
+class RouteEntry(object):
+    group = attr.attrib()        
+    stem = attr.attrib()
+    route_key = attr.attrib()
+    allowed_actions = attr.attrib(default=attr.Factory(set))
+    recursive = attr.attrib(default=False, converter=bool)
+    include_attributes = attr.attrib(default=False, converter=bool)
+    include_group_attributes = attr.attrib(default=False, converter=bool)
+    discard = attr.attrib(default=False, converter=bool)
+
+
+def validate_route_entry_(entry):
+    """
+    Validate an normalize a RouteEntry.
+    """
+    if (entry.group is not None) and (entry.stem is not None):
+        msg = (
+            "Cannot have both 'group' and 'stem' patterns "
+            "in a route entry number {0}.").format(n+1)
+        raise JSONRouteEntryError(msg)
+    if (entry.group is None) and (entry.stem is None):
+        msg = (
+            "Must have either 'group' or 'stem' pattern "
+            "in route entry number {0}.").format(n+1)
+        raise JSONRouteEntryError(msg)
+    entry.allowed_actions = set(action.lower() for action in entry.allowed_actions)
+    if (entry.stem is not None) and (not entry.stem.endswith(":")):
+        entry.stem = "{}:".format(entry.stem)
+    if entry.stem is None and entry.recursive:
+        msg = (
+            "'recursive' property is only valid for 'stem' pattern"
+            "in route entry {}.").format(entry)
+        raise JSONRouteEntryError(msg)
+    if entry.route_key is None and not entry.discard:
+        msg = (
+            "Missing 'route_key' "
+            "in route entry {}.").format(entry)
+        raise JSONRouteEntryError(msg)
+    if entry.discard and entry.include_attributes:
+        msg = (
+            "'include_attributes' and 'discard' are mutally exclusive "
+            "in route entry {}.").format(entry)
+        raise JSONRouteEntryError(msg)
+    if entry.discard and entry.route_key is not None:
+        msg = (
+            "'route_key' and 'discard' are mutally exclusive "
+            "in route entry {}.").format(entry)
+        raise JSONRouteEntryError(msg)
+
+
+@attr.attrs
+class RouteInfo(object):
+    route_key = attr.attrib(default=None)        
+    attributes_required = attr.attrib(default=False)
+    group_attributes_required = attr.attrib(default=False)
+
+
