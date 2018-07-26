@@ -227,7 +227,8 @@ class KikiProvisioner(object):
             raise UnknownAttributeResolverError(
                 "The attribute resolver identified by tag '{0}' is unknown.".format(
                     tag))
-        attrib_resolver = factory.generate_group_attribute_resolver(config_parser)
+        section = "RDBMS Group Attribute Resolver"
+        attrib_resolver = factory.generate_group_attribute_resolver(config_parser, section=section)
         attrib_resolver.log = self.log
         attrib_resolver.reactor = self.reactor
         self.group_attrib_resolver = attrib_resolver

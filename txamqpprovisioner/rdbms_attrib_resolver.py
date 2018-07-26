@@ -16,12 +16,13 @@ class RDBMSAttributeResolverFactory(object):
     implements(IPlugin, IAttributeResolverFactory)
     tag = "rdbms_attrib_resolver"
 
-    def generate_attribute_resolver(self, config_parser):
+    def generate_attribute_resolver(self, config_parser, section=None):
         """
         Create an object that implements IAttributeResolver.
         """
+        if section is None:
+            section = "RDBMS Attribute Resolver"
         resolver = RDBMSAttributeResolver()
-        section = "RDBMS Attribute Resolver"
         options = config_parser.options(section)
         driver = config_parser.get(section, "driver")
         query = config_parser.get(section, "query")

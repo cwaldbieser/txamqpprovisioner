@@ -52,7 +52,7 @@ class IMessageParser(Interface):
 class IAttributeResolverFactory(Interface):
     tag = Attribute('String used to identify the plugin factory.')
 
-    def generate_attribute_resolver(config_parser):
+    def generate_attribute_resolver(config_parser, section=None):
         """
         Create an object that implements IAttributeResolver.
         """
