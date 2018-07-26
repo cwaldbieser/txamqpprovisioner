@@ -90,6 +90,19 @@ class MembershipChangeMsg(BaseMsg):
         attributes = yield resolver.resolve_attributes(self.subject)
         self.attributes.update(attributes)
         
+    @defer.inlineCallbacks
+    def resolve_group_attributes(self, resolver):
+        """
+        Returns a Deferred that fires when group attributes have been resolved
+        for this message.
+        The way the attributes are stored in the message and serialized later
+        is up to the message class.  The resulting message should be understood
+        by downstream provisioners.
+        """
+        group = self.group
+        attributes = yield resolver.resolve_attributes(group)
+        self.group_attributes = attributes
+
 
 class SubjectChangedMsg(BaseMsg):
     """
