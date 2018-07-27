@@ -230,6 +230,7 @@ class SSHProvisioner(object):
                     config["deprovision_cmd"].strip())
                 template_str = config.get("sync_cmd", None)
                 if template_str is not None:
+                    log.debug("Sync command template: {template}", template=template_str)
                     self.sync_cmd = self.template_env.from_string(
                         template_str.strip())
                 self.provision_cmd_type = self.parse_command_type(
@@ -246,6 +247,7 @@ class SSHProvisioner(object):
                         config["deprovision_input"].strip())
                 if self.sync_cmd_type == self.CMD_TYPE_INPUT:
                     template_str = config.get("sync_input", None)
+                    log.debug("Sync input template: {template}", template=template_str)
                     self.sync_input = self.template_env.from_string(
                         template_str.strip())
                 result = config.get("provision_ok_result", None)
@@ -326,6 +328,7 @@ class SSHProvisioner(object):
         except Exception as ex:
             log.warn("Error parsing message: {error}", error=ex)
             raise
+        log.debug("Parsed message: {msg}", msg=msg)
         try:
             if msg.action == constants.ACTION_ADD:
                 yield self.provision_subject(msg)
@@ -623,11 +626,13 @@ class SSHProvisioner(object):
             raise Exception("Membership synchronization command is not configured.")
         command_type = self.sync_cmd_type
         # Evaluate command template
+        log.debug("Rendering membership sync command template ...")
         command = self.sync_cmd.render(
             group=target_group, 
             subjects=msg.subjects,
             attributes=msg.attributes,
             group_attributes=msg.group_attributes)
+        log.debug("Command template is: {command}", command=command)
         # Create channel with command.
         log.debug("Creating command channel with command: {command}", command=command)
         cmd_protocol = yield self.create_command_channel(command.encode('utf-8'))
@@ -643,7 +648,8 @@ class SSHProvisioner(object):
                 data = self.sync_input.render(
                     subject=subject,
                     group=target_group,
-                    attributes=subj_attribs)
+                    attributes=subj_attribs,
+                    group_attributes=msg.group_attributes)
                 # Write input to channel.
                 cmd_protocol.transport.write(data.encode('utf-8'))
         # Send EOF

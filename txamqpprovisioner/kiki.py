@@ -157,6 +157,7 @@ class KikiProvisioner(object):
                 yield parsed.resolve_attributes(self.attrib_resolver)
             if group_attributes_required:
                 log.debug("Resolving group attributes for message ...")
+                log.debug("Group attribute resolver: {resolver}", resolver=self.group_attrib_resolver)
                 yield parsed.resolve_group_attributes(self.group_attrib_resolver)
             log.debug("Delivering message to exchange ...")
             yield self.send_message(target_route_key, parsed)
@@ -239,6 +240,7 @@ class KikiProvisioner(object):
         attrib_resolver.log = self.log
         attrib_resolver.reactor = self.reactor
         self.group_attrib_resolver = attrib_resolver
+        log.debug("Installed Group Attribute Resolver: {resolver}", resolver=attrib_resolver)
 
     def install_router(self, tag, config_parser):
         """
