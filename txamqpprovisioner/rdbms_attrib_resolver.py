@@ -37,6 +37,8 @@ class RDBMSAttributeResolverFactory(object):
                 driver_options[opt] = config_parser.get(section, opt)
         if driver == 'sqlite3':
             driver_options['check_same_thread'] = False
+        if driver == 'MySQLdb':
+            driver_options['cp_reconnect'] = True
         if 'port' in driver_options:
             driver_options['port'] = int(driver_options['port'])
         dbpool = adbapi.ConnectionPool(driver, **driver_options)

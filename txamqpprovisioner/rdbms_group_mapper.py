@@ -34,6 +34,8 @@ class RDBMSGroupMapperFactory(object):
                 driver_options[opt] = config_parser.get(section, opt)
         if driver == 'sqlite3':
             driver_options['check_same_thread'] = False
+        if driver == 'MySQLdb':
+            driver_options['cp_reconnect'] = True
         dbpool = adbapi.ConnectionPool(driver, **driver_options)
         mapper.dbpool = dbpool
         mapper.query = query
