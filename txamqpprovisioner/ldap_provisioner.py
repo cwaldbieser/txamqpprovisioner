@@ -14,6 +14,7 @@ from config import load_config, section2dict
 import sqlite3
 import sys
 import urlparse
+import attr
 from jinja2 import Template
 from ldap_utils import escape_filter_chars, normalize_dn
 from ldaptor.protocols import pureldap
@@ -33,18 +34,46 @@ from txamqpprovisioner.interface import IProvisionerFactory, IProvisioner
 from txamqpprovisioner import constants
 
 
-LDAPTarget = namedtuple(
-    "LDAPTarget", 
-    [
-        'target_type',
-        'group', 
-        'create_group', 
-        'create_posix_group',
-        'create_context',
-        'attrib_name',
-        'attrib_value',
-        'multi_valued'
-    ])
+@attr.attrs
+class LDAPTarget(object):
+    target_type = attr.attrib()
+    group = attr.attrib()
+    create_group = attr.attrib()
+    create_posix_group = attr.attrib()
+    create_context = attr.attrib()
+    attrib_name = attr.attrib()
+    attrib_value = attr.attrib()
+    multi_valued = attr.attrib()
+
+
+class LDAPClientManager(object):
+    """
+    Manage an LDAP client and unbind when done with the
+    connection.
+
+    If the `active` flag is False, don't unbind.  This is useful when you are
+    using an existing client and don't want to inject a bunch of conditional
+    logic into your code.
+    """
+    active = False
+    client_ = None
+    log = None
+    def __init__(self, client, active=True, log=log):
+        self.client_ = client
+        self.active = active
+        self.log = log
+
+    def __enter__(self):
+        if self.log:
+            self.log.debug("Entering context manager.  Returning client: {client}", client=self.client_)
+        return self.client_
+
+    def __exit__(self, ex_type, ex_value, tb):
+        if self.active:
+            if self.log:
+                self.log.debug("Exiting contect manager.  Issuing unbind.")
+            self.client_.unbind()
+        return (ex_type is None)
 
 
 class LDAPProvisionerFactory(object):
@@ -608,7 +637,7 @@ class LDAPProvisioner(object):
     
     def group_to_ldap_group(self, g):
         """
-        Return an `LDAPTarget` named tuple from the full path to a
+        Return an `LDAPTarget` from the full path to a
         Grouper group.
         """
         log = self.log
@@ -713,7 +742,7 @@ class LDAPProvisioner(object):
                     "LDAP client BIND as '{bind_dn}'.",
                     event_type='ldap_bind',
                     bind_dn=bind_dn)
-        except:
+        except Exception:
             if client.connected:
                 client.unbind()
             raise
@@ -725,100 +754,99 @@ class LDAPProvisioner(object):
         # Transfer intake table to normalized batch tables.
         yield self.transfer_intake_to_batch()
         # Process the normalized batch.
-        client = yield self.get_ldap_client()
-        try:
-            group_sql = "SELECT rowid, grp FROM groups ORDER BY grp ASC;"
-            memb_add_sql = "SELECT member FROM member_ops WHERE grp = ? AND op = ? ORDER BY member ASC;" 
-            memb_del_sql = "SELECT member FROM member_ops WHERE grp = ? AND op = ? ORDER BY member ASC;" 
-            subj_sql = "SELECT DISTINCT member FROM member_ops ORDER BY member ASC;"
-            subj_add_sql = dedent("""\
-                SELECT DISTINCT groups.grp 
-                FROM groups
-                    INNER JOIN member_ops
-                        ON groups.rowid = member_ops.grp
-                WHERE member = ?
-                AND op = ? 
-                ORDER BY groups.grp ASC
-                ;
-                """)
-            subj_del_sql = dedent("""\
-                SELECT DISTINCT groups.grp 
-                FROM groups
-                    INNER JOIN member_ops
-                        ON groups.rowid = member_ops.grp
-                WHERE member = ?
-                AND op = ?
-                ORDER BY groups.grp ASC
-                ;
-                """)
-            results = yield self.runDBCommand(group_sql)
-            mapped_groups = {}
-            for groupid, group in results:
-                target = self.group_to_ldap_group(group)
-                if target is None:
-                    log.debug(
-                        "Group '{group}' is not a targetted group.  Skipping ...", 
-                        event_type='log',
-                        group=group)
-                    yield self.runDBCommand(
-                        '''DELETE FROM member_ops WHERE grp = ?;''', [groupid], is_query=False)
-                    yield self.runDBCommand(
-                        '''DELETE FROM groups WHERE grp = ?;''', [group], is_query=False)
-                    continue
-                target_name = get_target_name(target)
-                memb_add_results = yield self.runDBCommand(memb_add_sql, [groupid, constants.ACTION_ADD])
-                add_membs = set([r[0] for r in memb_add_results])
-                del memb_add_results
-                memb_del_results = yield self.runDBCommand(memb_del_sql, [groupid, constants.ACTION_DELETE])
-                del_membs = set([r[0] for r in memb_del_results])
-                del memb_del_results
-                if len(add_membs) > 0 or len(del_membs) > 0:
-                    log.debug(
-                        "Applying changes to target {target} ...", 
-                        event_type='log',
-                        target=target_name)
-                    if target.target_type == 'group':
+        group_sql = "SELECT rowid, grp FROM groups ORDER BY grp ASC;"
+        memb_add_sql = "SELECT member FROM member_ops WHERE grp = ? AND op = ? ORDER BY member ASC;" 
+        memb_del_sql = "SELECT member FROM member_ops WHERE grp = ? AND op = ? ORDER BY member ASC;" 
+        subj_sql = "SELECT DISTINCT member FROM member_ops ORDER BY member ASC;"
+        subj_add_sql = dedent("""\
+            SELECT DISTINCT groups.grp 
+            FROM groups
+                INNER JOIN member_ops
+                    ON groups.rowid = member_ops.grp
+            WHERE member = ?
+            AND op = ? 
+            ORDER BY groups.grp ASC
+            ;
+            """)
+        subj_del_sql = dedent("""\
+            SELECT DISTINCT groups.grp 
+            FROM groups
+                INNER JOIN member_ops
+                    ON groups.rowid = member_ops.grp
+            WHERE member = ?
+            AND op = ?
+            ORDER BY groups.grp ASC
+            ;
+            """)
+        results = yield self.runDBCommand(group_sql)
+        mapped_groups = {}
+        for groupid, group in results:
+            target = self.group_to_ldap_group(group)
+            if target is None:
+                log.debug(
+                    "Group '{group}' is not a targetted group.  Skipping ...", 
+                    event_type='log',
+                    group=group)
+                yield self.runDBCommand(
+                    '''DELETE FROM member_ops WHERE grp = ?;''', [groupid], is_query=False)
+                yield self.runDBCommand(
+                    '''DELETE FROM groups WHERE grp = ?;''', [group], is_query=False)
+                continue
+            target_name = get_target_name(target)
+            memb_add_results = yield self.runDBCommand(memb_add_sql, [groupid, constants.ACTION_ADD])
+            add_membs = set([r[0] for r in memb_add_results])
+            del memb_add_results
+            memb_del_results = yield self.runDBCommand(memb_del_sql, [groupid, constants.ACTION_DELETE])
+            del_membs = set([r[0] for r in memb_del_results])
+            del memb_del_results
+            if len(add_membs) > 0 or len(del_membs) > 0:
+                log.debug(
+                    "Applying changes to target {target} ...", 
+                    event_type='log',
+                    target=target_name)
+                if target.target_type == 'group':
+                    client = yield self.get_ldap_client()
+                    with LDAPClientManager(client, active=True) as managed_client:
                         group_dn, group_type, ldap_group_members = yield self.apply_changes_to_ldap_group(
-                            target, add_membs, del_membs, client)
-                        log.debug(
-                            "Applied changes to LDAP group {ldap_group}.",
-                            event_type='ldap_group_change',
-                            ldap_group=group_dn)
-                        mapped_groups[target.group] = group_dn
-            results = yield self.runDBCommand(subj_sql)
-            for (subject_id,) in results: 
-                add_results = yield self.runDBCommand(subj_add_sql, [subject_id, constants.ACTION_ADD])
-                add_membs = [self.group_to_ldap_group(r[0]) for r in add_results]
-                del add_results
-                add_attribs = [x for x in add_membs if x is not None and x.target_type == 'attribute']
-                add_membs = set(mapped_groups[t.group] for t in add_membs if t is not None and t.target_type == 'group')
-                del_results = yield self.runDBCommand(subj_del_sql, [subject_id, constants.ACTION_DELETE])
-                del_membs = [self.group_to_ldap_group(r[0]) for r in del_results]
-                del del_results
-                del_attribs = [x for x in del_membs if x is not None and x.target_type == 'attribute']
-                del_membs = set(mapped_groups[t.group] for t in del_membs if t is not None and t.target_type == 'group')
-                if len(add_membs) + len(del_membs) + len(add_attribs) + len(del_attribs) > 0:
+                            target, add_membs, del_membs, managed_client)
                     log.debug(
-                        "Applying changes to subject {subject} ...",
-                        subject=subject_id)
+                        "Applied changes to LDAP group {ldap_group}.",
+                        event_type='ldap_group_change',
+                        ldap_group=group_dn)
+                    mapped_groups[target.group] = group_dn
+        results = yield self.runDBCommand(subj_sql)
+        for (subject_id,) in results: 
+            add_results = yield self.runDBCommand(subj_add_sql, [subject_id, constants.ACTION_ADD])
+            add_membs = [self.group_to_ldap_group(r[0]) for r in add_results]
+            del add_results
+            add_attribs = [x for x in add_membs if x is not None and x.target_type == 'attribute']
+            add_membs = set(mapped_groups[t.group] for t in add_membs if t is not None and t.target_type == 'group')
+            del_results = yield self.runDBCommand(subj_del_sql, [subject_id, constants.ACTION_DELETE])
+            del_membs = [self.group_to_ldap_group(r[0]) for r in del_results]
+            del del_results
+            del_attribs = [x for x in del_membs if x is not None and x.target_type == 'attribute']
+            del_membs = set(mapped_groups[t.group] for t in del_membs if t is not None and t.target_type == 'group')
+            if len(add_membs) + len(del_membs) + len(add_attribs) + len(del_attribs) > 0:
+                log.debug(
+                    "Applying changes to subject {subject} ...",
+                    subject=subject_id)
+                client = yield self.get_ldap_client()
+                with LDAPClientManager(client, active=True) as managed_client:
                     yield self.apply_changes_to_ldap_subj(
                         subject_id, 
                         add_membs, 
                         del_membs, 
                         add_attribs,
                         del_attribs,
-                        client)
-                    log.debug(
-                        "Applied changes to LDAP subject '{subject_id}'.",
-                        event_type='ldap_user_change',
-                        subject_id=subject_id)
-            sql = "DELETE FROM groups;"
-            yield self.runDBCommand(sql, is_query=False)
-            sql = "DELETE FROM member_ops;"
-            yield self.runDBCommand(sql, is_query=False)
-        finally:
-            if client.connected:
-                client.unbind()
+                        managed_client)
+                log.debug(
+                    "Applied changes to LDAP subject '{subject_id}'.",
+                    event_type='ldap_user_change',
+                    subject_id=subject_id)
+        sql = "DELETE FROM groups;"
+        yield self.runDBCommand(sql, is_query=False)
+        sql = "DELETE FROM member_ops;"
+        yield self.runDBCommand(sql, is_query=False)
                 
     @inlineCallbacks
     def transfer_intake_to_batch(self):
@@ -889,7 +917,7 @@ class LDAPProvisioner(object):
         """
         Applies subject `adds` and `deletes` to an existing LDAP group's membership.
 
-        :param:`target`: An `LDAPTarget` named tuple.
+        :param:`target`: An `LDAPTarget`.
         :param:`adds`: An iterable of subject IDs to add to the membership.
         :param:`deletes`: An iterable of subject IDs to delete from the 
         membership.  If `deletes` is set to None, all the members not in `adds`
@@ -1375,7 +1403,7 @@ def test_entry_in_uid_set(entry, uid_set):
 
 def get_target_name(target):
     """
-    Get the target name from an `LDAPTarget` tuple.
+    Get the target name from an `LDAPTarget`.
     """
     if target.target_type == "group":
         return target.group
