@@ -190,6 +190,7 @@ follows::
                 "stem": "full:path:to:a:stem",
                 "recursive": false,
                 "include_attributes": false,
+                "include_group_attributes": false,
                 "route_key": "route_key_A"
             },
             {
@@ -225,9 +226,13 @@ In contrast, a `group` match will match only an exact group.  The exception to
 this rule is that if the value is '*', then any group will match.  This is
 useful for creating default routes.
 
-If a route entry may include the `include attributes` key.  If set to true, the
+If a route entry may include the `include_attributes` key.  If set to true, the
 provisioner delivery service will attempt to look up attributes for the 
 subject and include them in the message it delivers.
+
+If a route entry may include the `include_group_attributes` key.  If set to true,
+the provisioner delivery service will attempt to look up attributes for the 
+group and include them in the message it delivers.
 
 All route entries must include either a `route_key` or a `discard` key with a
 value of true.  If `discard` is set, the group being examined will be dropped
@@ -299,11 +304,13 @@ RDBMS Attribute Resolver
 The RDBMS attribute resolver looks up attributes from a RDBMS using drivers
 provided by the standard DBAPI2 interface.  This resolver expects to find
 its configuration options located under the `RDBMS Attribute Resolver` section
-of the main provisioner configuration file.  The options are as follows:
+for subject attribute resolution or `RDBMS Group Attribute Resolver` section
+for group attribute resolution.  The options are as follows:
 
 * **query** (required) - A SQL query that returns rows of attribute
   name-value pairs.  Multi-valued attributes will have a row for each value.
-  The query should take a single parameter, which is the subject.
+  The query should take a single parameter, which is the identifier of the
+  object attributes will be resolved for (a subject or a group).
 * **driver** (required) - The name of the DBAPI2 driver module name that
   will provide the underlying database connection.
 * **named_param** (optional) - Some DB drivers require that parameters be
