@@ -15,6 +15,8 @@ This provisioner supports the following options in the `PROVISIONER` section:
 
 * **attrib_resolver** (required) - The tag that identifies an attribute
   resolver that will fetch the attributes for a given subject.
+* **group_attrib_resolver** (optional) - The tag that identifies a group attribute
+  resolver that will fetch the attributes for a given group.
 * **parser_map** (required) - A configuration file that maps received
   messages to a particular type of message parser (see below).
 
