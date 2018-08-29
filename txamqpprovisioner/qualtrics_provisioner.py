@@ -264,8 +264,13 @@ class QualtricsProvisioner(RESTProvisioner):
         account_map = {}
         for api_id, match_value in results:
             if match_value.lower().endswith("#{}".format(organization)):
-                subject = match_value[:offset]
-                account_map[subject] = api_id
+                subj = match_value[:offset]
+                account_map[subj] = api_id
+        log.debug("Filling account cache with map of size {size}.", size=len(account_map))
+        if subject in account_map:
+            log.debug("Subject '{subject}' is in account_map.", subject=subject)
+        else:
+            log.debug("Subject '{subject}' is NOT in account_map.", subject=subject)
         self.fill_account_cache(account_map)
         del account_map
         for api_id, match_value in results:
@@ -364,6 +369,7 @@ class QualtricsProvisioner(RESTProvisioner):
             raise Exception("API returned status {0}".format(resp_code))
         else:
             parsed = yield resp.json()
+            log.debug("Parse API result is: {parsed}", parsed=parsed)
             if not "result" in parsed:
                 raise Exception("Error in `api_add_subject()`: {}".format(
                     json.dumps(parsed))) 
