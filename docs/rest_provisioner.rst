@@ -22,6 +22,15 @@ is not a requirement.
   to target accounts typically involves multiple API calls.  Some services limit
   the rate at which API calls may be issued.  This time in milliseconds limits
   the rate at which API calls are issued during account reconcillation.
+* **account_cache_validity_period** (default 0) - Some provisioners are able to
+  pre-fill the account cache.  If a provisioner pre-fills the cache, this setting
+  represents the length of time in seconds that the cache should be absolutely
+  trusted to contain accurate information.  I.e. if the cache is queried for a
+  subject, and the subject is not in the cache, the remote system should not be
+  queried.  It should be assumed the cache is accurate and the subject does not
+  exist in the remote system.  This is an optimization setting that can prevent
+  a provisioner from making costly remote lookups for accounts that are unlikely
+  to exist.
 * **client_secret** - Many services require some kind of shared secret that must
   be presented by the client before an API call will be honored.  This may be a
   password, a long-lived token that can be used to obtain short-lived authorization
