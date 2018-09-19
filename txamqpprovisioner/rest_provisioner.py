@@ -140,6 +140,8 @@ class RESTProvisioner(object):
     member_sync_rate_limit_ms = 0
     provision_strategy = "query-first"
     group_sync_strategy = "add-members-first"
+    account_cache_validity_period = 0
+    trust_account_cache__ = False
 
     def get_match_value_from_remote_account(self, remote_account):
         """
@@ -348,6 +350,7 @@ class RESTProvisioner(object):
                 self.group_sync_strategy = config.get("group_sync_strategy", "add-members-first").lower()
                 if not self.group_sync_strategy in ('query-first', 'add-members-first'):
                     raise Exception("Unknown group_sync_strategy: {}".format(self.group_sync_strategy))
+                self.account_cache_validity_period = int(config.get("account_cache_validity_period", 0))
             except KeyError as ex:
                 raise OptionMissingError(
                     "A require option was missing: '{0}:{1}'.".format(
@@ -535,7 +538,7 @@ class RESTProvisioner(object):
             strategy=provision_strategy)
         if self.is_subject_unmanaged(subject, attributes):
             returnValue(None)
-        api_id = yield self.get_account_id_from_cache(subject)
+        api_id = yield self.get_subject_api_id_from_cache(subject)
         if not api_id is None:
             yield self.update_subject(subject, api_id, attributes)
             returnValue(None)
@@ -806,7 +809,32 @@ class RESTProvisioner(object):
                 if not rate_limit_td is None:
                     process_next_at = datetime.datetime.today() + rate_limit_td
 
-    def get_account_id_from_cache(self, subject):
+    @inlineCallbacks
+    def fetch_account_id(self, subject, attributes):
+        """
+        Fetch an existing remote account ID and return it or None if the remote 
+        account does not exist.
+        """
+        log = self.log
+        api_id = self.get_subject_api_id_from_cache(subject)
+        if (not api_id is None) or self.trust_account_cache():
+            returnValue(api_id)
+        account_cache = self.__account_cache
+        api_id = yield self.api_get_account_id(subject, attributes)
+        if api_id is not None:
+            account_cache[subject] = api_id
+        returnValue(api_id)
+
+    def trust_account_cache(self):
+        """
+        If True, the account cache should be trusted, and the absence of a
+        subject in the cache should be taken to mean that the subject does not
+        exist in the remote system.  Not interrogation of the remote system
+        should be performed.
+        """
+        return self.trust_account_cache__
+
+    def get_subject_api_id_from_cache(self, subject):
         """
         Fetch an existing remote account ID from the cache and return it 
         or None if the remote account does not exist.
@@ -822,30 +850,9 @@ class RESTProvisioner(object):
             api_id = account_cache[subject]
             return api_id
         log.debug("Account ID not in cache for '{subject}'.", subject=subject)
+        return None
 
-    @inlineCallbacks
-    def fetch_account_id(self, subject, attributes):
-        """
-        Fetch an existing remote account ID and return it or None if the remote 
-        account does not exist.
-        """
-        log = self.log
-        api_id = self.get_account_id_from_cache(subject)
-        if not api_id is None:
-            returnValue(api_id)
-        account_cache = self.__account_cache
-        api_id = yield self.api_get_account_id(subject, attributes)
-        if api_id is not None:
-            account_cache[subject] = api_id
-        returnValue(api_id)
-
-    def get_subject_api_id_from_cache(self, subject):
-        """
-        Return the API ID for a subject or None if it is not in the cache.
-        """
-        log = self.log
-        account_cache = self.__account_cache
-        return account_cache.get(subject, None)
+    get_account_id_from_cache = get_subject_api_id_from_cache
 
     def invalidate_cached_subject_api(self, api_id):
         """
@@ -880,6 +887,25 @@ class RESTProvisioner(object):
         account_cache = self.__account_cache
         for subject, api_id in iteritems(account_id_map):
             account_cache[subject] = api_id
+        if len(account_id_map) > self.account_cache_size:
+            log.warn("Number of results queried from remote system is greater than account cache size.")
+            return
+        acvp = self.account_cache_validity_period
+        if acvp == 0:
+            log.debug("Account cache validity period is 0.  Not enabling absolute trust in cache.")
+            return
+        self.trust_account_cache__ = True
+        log.debug(
+            "Enabled absolute trust in account cache for {cache_validity_period} seconds.",
+            cache_validity_period=acvp)
+        delayed_call = self.reactor.callLater(acvp, self.untrust_account_cache__)
+        log.debug("Created IDelayedCall object.")
+
+    def untrust_account_cache__(self):
+        log = self.log
+        log.debug("Removing absolute trust in account cache ...")
+        self.trust_account_cache__ = False
+        log.debug("Removed absolute trust in account cache.")
 
     @inlineCallbacks
     def update_subject(self, subject, api_id, attributes):
@@ -892,10 +918,6 @@ class RESTProvisioner(object):
         try:
             resp = yield self.api_update_subject(subject, api_id, attributes)
         except Exception as ex:
-            #log.error(
-            #    "Error attempting to update subject '{subject}' identified by '{api_id}'.",
-            #    subject,
-            #    api_id)
             raise
         resp_code = resp.code
         log.debug("Response code: {code}", code=resp_code)
