@@ -1,0 +1,26 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+twisted = "*"
+txamqp = "*"
+txsshadmin = "*"
+treq = "*"
+jinja2 = "*"
+klein = "*"
+six = "*"
+commentjson = "*"
+pyjwt = "*"
+pylru = "*"
+service-identity = "*"
+werkzeug = "*"
+mysql-python = "*"
+ldaptor = {ref = "7a51037ccf3ebe387766a3a91cf9ae79a3a3393d",git = "https://github.com/twisted/ldaptor",editable = true}
+pyhamcrest = "*"
+
+[requires]
+python_version = "2.7"
