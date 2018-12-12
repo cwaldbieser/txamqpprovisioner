@@ -31,3 +31,7 @@ zoom_provisioner_factory = ZoomProvisionerFactory()
 
 from txamqpprovisioner.ad_account_provisioner import ADAccountProvisionerFactory
 ad_account_provisioner_factory = ADAccountProvisionerFactory()
+
+from txamqpprovisioner.crashplan_provisioner import CrashplanProvisionerFactory
+crashplan_provisioner_factory = CrashplanProvisionerFactory()
+

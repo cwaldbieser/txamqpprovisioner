@@ -19,7 +19,7 @@ from twisted.internet.defer import (
 )
 
 
-class Code42Provisioner(RESTProvisioner):
+class CrashplanProvisioner(RESTProvisioner):
     """
     Definitions:
 
@@ -50,7 +50,7 @@ class Code42Provisioner(RESTProvisioner):
         match_value = remote_account.get("email", None)
         if match_value is not None:
             match_value = match_value.lower()
-            if not match_value.endswith("@{0}".format(domain.lower())):
+            if not match_value.endswith("@{}".format(domain.lower())):
                 match_value = None
         return match_value
 
@@ -291,7 +291,7 @@ class Code42Provisioner(RESTProvisioner):
             raise Exception("API call to fetch remote account ID returned HTTP status {}".format(resp_code))
         data = parsed.get("data", None)
         if data is None:
-            return None
+            returnValue(None)
         api_id = data.get("userId", None)
         returnValue(api_id)
 
@@ -343,10 +343,10 @@ class Code42Provisioner(RESTProvisioner):
         log.debug("This is a no-op.  CrashPlan accounts are provisioned just in time.")
 
 
-class Code42ProvisionerFactory(RESTProvisionerFactory):
-    tag = "code42_provisioner"
-    opt_help = "Code42 API Provisioner"
+class CrashplanProvisionerFactory(RESTProvisionerFactory):
+    tag = "crashplan_provisioner"
+    opt_help = "Code42 CrashPlan API Provisioner"
     opt_usage = "This plugin does not support any options."
-    provisioner_factory = Code42Provisioner
+    provisioner_factory = CrashplanProvisioner
 
 
