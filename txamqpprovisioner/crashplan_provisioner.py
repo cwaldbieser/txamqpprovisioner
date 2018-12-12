@@ -108,7 +108,7 @@ class CrashplanProvisioner(RESTProvisioner):
         auth_url = "{}/c42api/v3/auth/jwt".format(self.url_prefix)
         log.debug("Making API call to obtain auth token ...")
         log.debug("method: GET, URL: {url}", url=auth_url)
-        log.debug("auth: ({}, {}***)".format(basic_auth[0], basic_auth[1][:3])
+        log.debug("auth: ({}, {}***)".format(basic_auth[0], basic_auth[1][:3]))
         response = yield http_client.get(
             auth_url,
             auth=basic_auth,
@@ -124,11 +124,11 @@ class CrashplanProvisioner(RESTProvisioner):
                 raise
             if not "data" in doc:
                 log.error("Error attempting to parse response to authentication request.")
-                raise Exception("Error parsing authentication response.")
+                raise Exception("Error parsing authentication response.  Missing element `data`.")
             data = doc['data']
-            if not "v3_user_token" in doc:
+            if not "v3_user_token" in data:
                 log.error("Error attempting to parse response to authentication request.")
-                raise Exception("Error parsing authentication response.")
+                raise Exception("Error parsing authentication response.  Missing element `v3_user_token`.")
             self.auth_token = data["v3_user_token"]
             log.debug("New auth token obtained.")
         else:
@@ -222,7 +222,7 @@ class CrashplanProvisioner(RESTProvisioner):
         log.debug("Attempting to fetch remote account ...")
         http_client = self.http_client
         prefix = self.url_prefix
-        url = "{}/User/{}".format(prefix, api_id)
+        url = "{}/api/User/{}".format(prefix, api_id)
         headers = {
             'Accept': ['application/json'],
         }
@@ -237,10 +237,9 @@ class CrashplanProvisioner(RESTProvisioner):
         returnValue(remote_account)
 
     @inlineCallbacks
-    def api_deprovision_subject(self, api_id):
+    def change_subject_status_(self, api_id, active=True):
         """
-        Make the API call require to deprovision the subject identified by
-        `api_id`.
+        Activate / deactivate subject.
         """
         log = self.log
         http_client = self.http_client
@@ -250,10 +249,15 @@ class CrashplanProvisioner(RESTProvisioner):
             'Accept': ['application/json'],
             'Content-Type': ['application/json'],
         }
+        if active:
+            method = "DELETE"
+        else:
+            method = "PUT"
         log.debug("url: {url}", url=url)
+        log.debug("menthod: {method}", method=method)
         log.debug("headers: {headers}", headers=headers)
         resp = yield self.make_authenticated_api_call(
-            "PUT",
+            method,
             url,
             headers=headers)
         resp_code = resp.code
@@ -261,6 +265,16 @@ class CrashplanProvisioner(RESTProvisioner):
             content = yield resp.content()
         except Exception as ex:
             pass
+        returnValue(resp_code)
+
+    @inlineCallbacks
+    def api_deprovision_subject(self, api_id):
+        """
+        Make the API call require to deprovision the subject identified by
+        `api_id`.
+        """
+        log = self.log
+        resp_code = yield self.change_subject_status_(api_id, active=False)
         if resp_code != 201:
             raise Exception("API call to deprovision subject returned HTTP status {}".format(resp_code))
         returnValue(None)
@@ -275,7 +289,7 @@ class CrashplanProvisioner(RESTProvisioner):
         http_client = self.http_client
         prefix = self.url_prefix
         local_match_value = self.get_match_value_from_local_subject(subject, attributes)
-        url = "{}/User".format(prefix)
+        url = "{}/api/User".format(prefix)
         headers = {
             'Accept': ['application/json'],
         }
@@ -304,17 +318,17 @@ class CrashplanProvisioner(RESTProvisioner):
         Returns the HTTP response.
         """
         log = self.log
+        resp_code = yield self.change_subject_status_(api_id, active=True)
+        if resp_code != 204:
+            raise Exception("API call to activate subject returned HTTP status {}".format(resp_code))
         prefix = self.url_prefix
-        url = "{}/User/{}".format(prefix, api_id)
+        url = "{}/api/User/{}".format(prefix, api_id)
         headers = {
             'Accept': ['application/json'],
             'Content-Type': ['application/json'],
         }
         surname = attributes.get("sn", [""])[0]
         givenname = attributes.get("givenName", [""])[0]
-        displayname = "{}, {}".format(surname, givenname)
-        upn = "{}@{}".format(subject, self.domain)
-        immutable_id = attributes.get("bannerLNumber", [None])[0]
         props = {
             'firstName': givenname,
             'lastName': surname,
@@ -341,6 +355,8 @@ class CrashplanProvisioner(RESTProvisioner):
         a lookup on future use.
         """
         log = self.log
+        if False:
+            yield None
         log.debug("Entered: api_add_subject().")
         log.debug("This is a no-op.  CrashPlan accounts are provisioned just in time.")
 
