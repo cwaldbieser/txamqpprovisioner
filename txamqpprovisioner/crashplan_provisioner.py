@@ -104,12 +104,14 @@ class CrashplanProvisioner(RESTProvisioner):
         params = {
             "useBody": "true",
         }
+        basic_auth = (self.api_username, self.client_secret)
         auth_url = "{}/c42api/v3/auth/jwt".format(self.url_prefix)
         log.debug("Making API call to obtain auth token ...")
         log.debug("method: GET, URL: {url}", url=auth_url)
+        log.debug("auth: ({}, {}***)".format(basic_auth[0], basic_auth[1][:3])
         response = yield http_client.get(
             auth_url,
-            auth=(self.api_username, self.client_secret),
+            auth=basic_auth,
             params=params,
             headers=headers)
         resp_code = response.code
