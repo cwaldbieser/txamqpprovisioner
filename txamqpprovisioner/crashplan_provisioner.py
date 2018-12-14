@@ -201,7 +201,7 @@ class CrashplanProvisioner(RESTProvisioner):
                 log.error("Error attempting to parse response to get ALL users.")
                 raise Exception("Error attempting to parse response to get ALL users.  Missing `data` element.")
             total_count = parsed.get("totalCount", -1)
-            users = parsed.get("users", None)
+            users = data.get("users", None)
             if users is None:
                 log.error("Error attempting to parse response to get ALL users.")
                 raise Exception("Error attempting to parse response to get ALL users.  Missing `users` element.")
