@@ -317,12 +317,16 @@ class CrashplanProvisioner(RESTProvisioner):
             raise Exception("API call to fetch remote account ID returned HTTP status {}".format(resp_code))
         data = parsed.get("data", None)
         if data is None:
+            log.debug("No `data` element in parsed response.")
             returnValue(None)
         users = data.get("users", [])
         if len(users) == 0:
+            log.debug("Empty/no `users` element in parsed response.")
             returnValue(None)
         user = users[0]
         api_id = user.get("userId", None)
+        if api_id is None:
+            log.debug("No `userId` attribute in parsed response.")
         returnValue(api_id)
 
     @inlineCallbacks
@@ -371,7 +375,7 @@ class CrashplanProvisioner(RESTProvisioner):
         """
         log = self.log
         log.debug("Entered: api_add_subject().")
-        api_id = yield self.api_get_account_id(subject, attributes)
+        api_id = yield self.fetch_account_id(subject, attributes)
         if api_id:
             resp_code = yield self.change_subject_status_(api_id, active=True)
             if resp_code != 204:
