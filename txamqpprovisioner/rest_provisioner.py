@@ -602,7 +602,7 @@ class RESTProvisioner(object):
         new_method, new_url, new_http_options = yield self.authorize_api_call(
             method, url, **http_options)
         log.debug(
-            "Making API call.  method: {method}, URL: {url}", 
+            "Making authenticated API call.  method: {method}, URL: {url}", 
             method=new_method, 
             url=new_url)
         response = yield getattr(http_client, new_method)(new_url, **new_http_options)

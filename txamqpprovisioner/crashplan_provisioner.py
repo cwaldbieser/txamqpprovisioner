@@ -95,6 +95,7 @@ class CrashplanProvisioner(RESTProvisioner):
         Should set `self.auth_token`.
         """
         log = self.log
+        log.debug("entered api_get_auth_token().")
         domain = self.domain
         http_client = self.http_client
         headers = {
@@ -219,6 +220,7 @@ class CrashplanProvisioner(RESTProvisioner):
         Get the remote account information using its API ID.
         """
         log = self.log
+        log.debug("entered api_get_remote_account().")
         log.debug("Attempting to fetch remote account ...")
         http_client = self.http_client
         prefix = self.url_prefix
@@ -274,6 +276,7 @@ class CrashplanProvisioner(RESTProvisioner):
         `api_id`.
         """
         log = self.log
+        log.debug("entered api_deprovision_subject()")
         resp_code = yield self.change_subject_status_(api_id, active=False)
         if resp_code != 201:
             raise Exception("API call to deprovision subject returned HTTP status {}".format(resp_code))
@@ -286,6 +289,7 @@ class CrashplanProvisioner(RESTProvisioner):
         Return None if the account oes not exist on the remote end.
         """
         log = self.log
+        log.debug("entered api_get_account()")
         http_client = self.http_client
         prefix = self.url_prefix
         local_match_value = self.get_match_value_from_local_subject(subject, attributes)
@@ -296,6 +300,11 @@ class CrashplanProvisioner(RESTProvisioner):
         params = {
             'username': local_match_value,
         }
+        log.debug("Making API call to fetch account from local match value.")
+        log.debug("method: {method}, url: {url}, params: {params}",
+            method="GET",
+            url=url,
+            params=params)
         resp = yield self.make_authenticated_api_call(
             "GET",
             url,
@@ -303,12 +312,17 @@ class CrashplanProvisioner(RESTProvisioner):
             params=params)
         resp_code = resp.code
         parsed = yield resp.json()
+        log.debug("Result of fetch attempt: {parsed}", parsed=parsed)
         if resp_code not in (200,):
             raise Exception("API call to fetch remote account ID returned HTTP status {}".format(resp_code))
         data = parsed.get("data", None)
         if data is None:
             returnValue(None)
-        api_id = data.get("userId", None)
+        users = data.get("users", [])
+        if len(users) == 0:
+            returnValue(None)
+        user = users[0]
+        api_id = user.get("userId", None)
         returnValue(api_id)
 
     @inlineCallbacks
@@ -318,6 +332,7 @@ class CrashplanProvisioner(RESTProvisioner):
         Returns the HTTP response.
         """
         log = self.log
+        log.debug("entered api_update_subject()")
         resp_code = yield self.change_subject_status_(api_id, active=True)
         if resp_code != 204:
             raise Exception("API call to activate subject returned HTTP status {}".format(resp_code))
@@ -355,11 +370,13 @@ class CrashplanProvisioner(RESTProvisioner):
         a lookup on future use.
         """
         log = self.log
-        if False:
-            yield None
         log.debug("Entered: api_add_subject().")
-        log.debug("This is a no-op.  CrashPlan accounts are provisioned just in time.")
-
+        api_id = yield self.api_get_account_id(subject, attributes)
+        if api_id:
+            resp_code = yield self.change_subject_status_(api_id, active=True)
+            if resp_code != 204:
+                raise Exception("API call to activate subject returned HTTP status {}".format(resp_code))
+            returnValue(api_id)
 
 class CrashplanProvisionerFactory(RESTProvisionerFactory):
     tag = "crashplan_provisioner"
