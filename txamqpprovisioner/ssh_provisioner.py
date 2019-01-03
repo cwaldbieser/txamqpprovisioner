@@ -73,6 +73,8 @@ class ParsedMessage(object):
     action = attr.attrib()
     group = attr.attrib()
     subject = attr.attrib()
+    attributes = attr.attrib(default=attr.Factory(dict))
+    group_attributes = attr.attrib(default=attr.Factory(dict))
     
 
 @attr.attrs
@@ -361,13 +363,13 @@ class SSHProvisioner(object):
         doc = json.loads(serialized)
         action = doc['action']
         group = doc['group']
+        attributes = doc.get('attributes', {})
+        group_attributes = doc.get('group_attributes', {})
         if action in (constants.ACTION_ADD, constants.ACTION_DELETE):
             subject = doc['subject']
-            return ParsedMessage(action, group, subject)
+            return ParsedMessage(action, group, subject, attributes, group_attributes)
         elif action == constants.ACTION_MEMBERSHIP_SYNC:
             subjects = doc["subjects"]
-            attributes = doc.get('attributes', {})
-            group_attributes = doc.get('group_attributes', {})
             return ParsedSyncMessage(action, group, subjects, attributes, group_attributes)
         else:
             raise UnknownActionError(
@@ -514,7 +516,9 @@ class SSHProvisioner(object):
         # Evaluate command template
         command = self.provision_cmd.render(
             subject=msg.subject, 
-            group=target_group)
+            group=target_group,
+            attributes=msg.attributes,
+            group_attributes=msg.group_attributes)
         # Create channel with command.
         log.debug("Creating command channel with command: {command}", command=command)
         cmd_protocol = yield self.create_command_channel(command.encode('utf-8'))
@@ -526,7 +530,9 @@ class SSHProvisioner(object):
             # Evaluate input template
             data = self.provision_input.render(
                 subject=msg.subject,
-                group=target_group)
+                group=target_group,
+                attributes=msg.attributes,
+                group_attributes=msg.group_attributes)
             # Write input to channel.
             log.debug("Writing data to channel: {data}", data=data)
             cmd_protocol.transport.write(data.encode('utf-8'))
@@ -571,7 +577,9 @@ class SSHProvisioner(object):
         # Evaluate command template
         command = self.deprovision_cmd.render(
             subject=msg.subject, 
-            group=target_group)
+            group=target_group,
+            attributes=msg.attributes,
+            group_attributes=msg.group_attributes)
         # Create channel with command.
         log.debug("Creating command channel with command: {command}", command=command)
         cmd_protocol = yield self.create_command_channel(command.encode('utf-8'))
@@ -582,7 +590,9 @@ class SSHProvisioner(object):
             # Evaluate input template
             data = self.deprovision_input.render(
                 subject=msg.subject,
-                group=target_group)
+                group=target_group,
+                attributes=msg.attributes,
+                group_attributes=msg.group_attributes)
             # Write input to channel.
             cmd_protocol.transport.write(data.encode('utf-8'))
         # Send EOF
