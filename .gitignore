@@ -9,3 +9,4 @@ pyenv/
 keys/
 conf.d/
 _*
+.venv/
