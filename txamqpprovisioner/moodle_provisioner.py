@@ -267,11 +267,15 @@ class MoodleProvisioner(RESTProvisioner):
         params = {
             'moodlewsrestformat': 'json'
         }
+        first_name = (
+            (attributes.get("displayName", [""])[0])
+            or
+            (attributes.get("givenName", [""])[0]))
         data = {
             'wstoken': self.client_secret,
             'wsfunction': 'core_user_create_users',
             'users[0][username]': subject,
-            'users[0][firstname]': attributes.get("givenName", [""])[0],
+            'users[0][firstname]': first_name,
             'users[0][lastname]': attributes.get("sn", [""])[0],
             'users[0][email]': attributes.get("mail", [""])[0],
             'users[0][customfields][0][type]': 'lnumber',
