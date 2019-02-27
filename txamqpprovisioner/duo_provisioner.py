@@ -83,6 +83,7 @@ class DuoSecurityProvisioner(RESTProvisioner):
       These accounts are identified by their match_values.
     """
     http_authn_client = None
+    limit = 100
     
     def get_match_value_from_remote_account(self, remote_account):
         """
@@ -122,6 +123,44 @@ class DuoSecurityProvisioner(RESTProvisioner):
             raise OptionMissingError(
                 "The `client_id` option is missing!") 
         self.client_id = client_id
+
+    @inlineCallbacks
+    def paginate_api_call(self, method, url, valid_response_codes=None, **http_options):
+        """
+        Make an API call via the `make_authenticated_api_call()` method,
+        but automatically use pagination.
+        If pagination fails at some point, stop, and raise an error.
+        """
+        log = self.log
+        limit = self.limit
+        if valid_response_codes is None:
+            valid_response_codes = set([200])
+        offset = 0
+        parsed_responses = []
+        while True:
+            params = http_options.get('params', {})
+            params['limit'] = "{}".format(limit)
+            params['offset'] = "{}".format(offset)
+            http_options['params'] = params
+            try:
+                resp = yield self.make_authenticated_api_call(method, url, **http_options)
+            except Exception as ex:
+                log.error("Error fetching all remote user data.")
+                raise
+            if resp.code not in valid_response_codes:
+                raise Exception("API call to resource `{}` returned HTTP status {}".format(url, resp_code))
+            parsed = yield resp.json()
+            metadata = parsed['metadata']
+            next_offset = metadata.get("next_offset", None)
+            total_objects = metadata.get("total_objects", None)
+            value = parsed["response"]
+            parsed_responses.extend(value)
+            if total_objects is None:
+                break 
+            if len(parsed_responses) >= total_objects:
+                break
+        results = {'response': parsed_responses}
+        returnValue(results)
 
     @inlineCallbacks
     def api_get_auth_token(self):
@@ -186,14 +225,13 @@ class DuoSecurityProvisioner(RESTProvisioner):
         log.debug("URL (GET): {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         try:
-            resp = yield self.make_authenticated_api_call(
+            parsed = yield self.paginate_api_call(
                 "GET",
                 url,
                 headers=headers)
         except Exception as ex:
             log.error("Error fetching all remote user data.")
             raise
-        parsed = yield resp.json()
         value = parsed["response"]
         for entry in value:
             api_id = self.get_api_id_from_remote_account(entry)
@@ -384,15 +422,11 @@ class DuoSecurityProvisioner(RESTProvisioner):
         }
         params = {
         }
-        resp = yield self.make_authenticated_api_call(
+        parsed = yield self.paginate_api_call(
             "GET",
             url,
             headers=headers,
             params=params)
-        resp_code = resp.code
-        parsed = yield resp.json()
-        if resp_code not in (200, ):
-            raise Exception("API call `api_get_all_target_groups()` returned HTTP status {0}".format(resp_code))
         if not "response" in parsed:
             raise Exception(
                 "API call `api_get_all_target_groups()` unexpected response: {}".format(
@@ -430,7 +464,7 @@ class DuoSecurityProvisioner(RESTProvisioner):
         resp_code = resp.code
         parsed = yield resp.json()
         if resp_code not in (200, ):
-            raise Exception("API call `api_get_all_target_groups()` returned HTTP status {0}".format(resp_code))
+            raise Exception("API call `get_subjects_for_target_group()` returned HTTP status {0}".format(resp_code))
         if not "response" in parsed:
             raise Exception(
                 "API call `api_get_all_target_groups()` unexpected response: {}".format(
