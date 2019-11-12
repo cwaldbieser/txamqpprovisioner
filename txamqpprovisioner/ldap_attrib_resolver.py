@@ -121,6 +121,9 @@ class LDAPAttributeResolver(object):
                 value = entry.get(name, None)
                 if value is not None: 
                     attribs[name] = list(value)
+        log.debug("RESULTS: {results}", results=results)
+        if len(results) == 0:
+            raise Exception("Could not find  subject `{subject}` in LDAP DIT.".format(subject))
         returnValue(attribs)        
 
     @inlineCallbacks

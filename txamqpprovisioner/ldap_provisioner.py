@@ -106,6 +106,9 @@ class LDAPProvisioner(object):
     process_posix = False
     gid_pool_dn = None
     provisioner_state = None
+    base_dn = None
+    account_base_dn = None
+    group_base_dn = None
     IDLE = 0
     PROCESSING_REQUESTS = 1
     MEMBERSHIP_SYNC = 2
@@ -124,13 +127,21 @@ class LDAPProvisioner(object):
         log.debug("Loaded group map for LDAP provisioner.", 
             event_type='loaded_provisioner_group_map')
         base_dn = config.get('base_dn', None)
-        if base_dn is None:
-            log.error("Must provide option `{section}:{option}`.", 
-                event_type='provisioner_config_error', 
-                section='PROVISIONER',
-                option='base_dn')
+        account_base_dn = config.get('account_base_dn', None)
+        group_base_dn = config.get('group_base_dn', None)
+        if base_dn is None and account_base_dn is None:
+            log.error("Must provide option PROVISIONER:base_dn OR PROVISIONER:account_base_dn.", 
+                event_type='provisioner_config_error')
+            sys.exit(1)
+        if base_dn is None and group_base_dn is None:
+            log.error("Must provide option PROVISIONER:base_dn OR PROVISIONER:group_base_dn.", 
+                event_type='provisioner_config_error')
             sys.exit(1)
         self.base_dn = base_dn
+        self.account_base_dn = account_base_dn
+        self.group_base_dn = group_base_dn
+        self.subject_id_attribute = config.get("subject_id_attribute", "uid")
+        self.group_attrib_type = config.get("group_attrib_type", "cn")
         self.group_attribute = config['group_attribute']
         self.user_attribute = config['user_attribute']
         self.gid_pool_dn = config.get("gid_pool_dn", None)
@@ -392,7 +403,9 @@ class LDAPProvisioner(object):
             log.debug("Provisioned attribute `{attrib_name}` for subject `{subject_id}`.",
                 attrib_name=attrib_name,
                 subject_id=subject)
-        base_dn = self.base_dn
+        base_dn = self.account_base_dn
+        if base_dn is None:
+            base_dn = self.base_dn
         subject_id_attribute = self.subject_id_attribute
         attribs = [attrib_name, subject_id_attribute]
         fltr = "({0}={1})".format(attrib_name, escape_filter_chars(attrib_value))
@@ -499,7 +512,9 @@ class LDAPProvisioner(object):
         user_attribute = self.user_attribute
         subject_chunk_size = self.subject_chunk_size
         commit_batch_size = self.commit_batch_size
-        base_dn = self.base_dn
+        base_dn = self.account_base_dn
+        if base_dn is None:
+            base_dn = self.base_dn
         log.debug("base_dn='{base_dn}', commit_batch_size={commit_batch_size}",
             base_dn=base_dn,
             commit_batch_size=commit_batch_size)
@@ -1060,7 +1075,6 @@ class LDAPProvisioner(object):
         provision_user = self.provision_user
         if not provision_user:
             returnValue(None)
-        base_dn = self.base_dn
         user_attribute = self.user_attribute
         if len(fq_adds) + len(fq_deletes) > 0:
             attrib_set = set([user_attribute])
@@ -1131,7 +1145,9 @@ class LDAPProvisioner(object):
        
     @inlineCallbacks 
     def load_subjects(self, subject_ids, client, attribs=()):
-        base_dn = self.base_dn
+        base_dn = self.account_base_dn
+        if base_dn is None:
+            base_dn = self.base_dn
         rval = []
         dlist = []
         subject_id_attribute = self.subject_id_attribute
@@ -1155,7 +1171,9 @@ class LDAPProvisioner(object):
     @inlineCallbacks
     def lookup_group(self, group_name, client):
         group_attrib_type = self.group_attrib_type
-        base_dn = self.base_dn
+        base_dn = self.group_base_dn
+        if base_dn is None:
+            base_dn = self.base_dn
         group_attribs = ['member', 'memberUid', 'objectClass']
         fltr = "({0}={1})".format(group_attrib_type, escape_filter_chars(group_name))
         o = ldapsyntax.LDAPEntry(client, base_dn)

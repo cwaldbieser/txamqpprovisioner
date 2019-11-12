@@ -400,7 +400,9 @@ class ZoomProvisioner(RESTProvisioner):
             'Content-Type': ['application/json'],
         }
         surname = attributes.get("sn", [""])[0]
-        givenname = attributes.get("givenName", [""])[0]
+        givenname = attributes.get("displayName", [""])[0]
+        if givenName == "":
+            givenname = attributes.get("givenName", [""])[0]
         email = attributes.get("mail", [""])[0]
         user_info = {
             'email': email,
