@@ -19,7 +19,7 @@ pylru = "*"
 service-identity = "*"
 werkzeug = "*"
 mysql-python = "*"
-ldaptor = {editable = true,git = "https://github.com/twisted/ldaptor",ref = "7a51037ccf3ebe387766a3a91cf9ae79a3a3393d"}
+ldaptor = "==19.1.0"
 pyhamcrest = "*"
 pem = "*"
 

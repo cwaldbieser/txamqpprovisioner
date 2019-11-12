@@ -38,4 +38,4 @@ def normalize_dn(dn):
     """
     Transforms a `DistinguishedName` into a `DistinguishedName` with the casing normalized.
     """
-    return DistinguishedName(tuple(RelativeDistinguishedName(str(r).lower()) for r in dn.listOfRDNs))
+    return DistinguishedName(tuple(RelativeDistinguishedName(r.getText().lower()) for r in dn.listOfRDNs))
