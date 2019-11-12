@@ -6,7 +6,7 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-twisted = "*"
+twisted = ">=19.10.0"
 txamqp = "*"
 txsshadmin = "*"
 treq = "*"
@@ -17,10 +17,8 @@ commentjson = "*"
 pyjwt = "*"
 pylru = "*"
 service-identity = "*"
-werkzeug = "*"
 mysql-python = "*"
-ldaptor = "==19.1.0"
-pyhamcrest = "*"
+ldaptor = ">=19.1.0"
 pem = "*"
 
 [requires]
