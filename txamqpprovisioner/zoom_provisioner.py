@@ -401,7 +401,7 @@ class ZoomProvisioner(RESTProvisioner):
         }
         surname = attributes.get("sn", [""])[0]
         givenname = attributes.get("displayName", [""])[0]
-        if givenName == "":
+        if givenname == "":
             givenname = attributes.get("givenName", [""])[0]
         email = attributes.get("mail", [""])[0]
         user_info = {
