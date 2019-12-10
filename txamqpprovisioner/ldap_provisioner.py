@@ -693,36 +693,61 @@ class LDAPProvisioner(object):
                     multi_valued)
         else:
             parts = g.split(':')
-            stem_parts = parts[:-1]
-            stem = ':'.join(stem_parts) + ':'
-            group_only = parts[-1]
-            log.debug(
-                "Attempting to match stem, '{stem}' ...",
-                event_type='stemmap_lookup',
-                stem=stem)
-            result = stem_map.get(stem, None)
-            if result is not None:
-                template = Template(result['template'])
-                ldap_group = template.render(group=group_only, stem=stem, fqgroup=g)
-                create_group = result['create_group']
-                create_posix_group = result['create_posix_group']
-                create_context = result.get('create_context', None)
+            partition_indices = range(-1, -len(parts), -1)
+            for n, partition_index in enumerate(partition_indices): 
+                stem_parts = parts[:partition_index]
+                stem = ':'.join(stem_parts) + ':'
+                group_part = ':'.join(parts[partition_index:])
                 log.debug(
-                    "Group '{group}' stem-mapped to '{ldap_group}'",
-                    event_type='groupmap_match',
-                    group=g,
-                    ldap_group=ldap_group) 
-                return LDAPTarget(
-                    "group",
-                    ldap_group, 
-                    create_group, 
-                    create_posix_group, 
-                    create_context,
-                    None,
-                    None,
-                    None)
-            else:
-                return None 
+                    "Attempting to match stem, '{stem}' ...",
+                    event_type='stemmap_lookup',
+                    stem=stem)
+                result = stem_map.get(stem, None)
+                if result is not None:
+                    if n > 0 and not result.get('recursive', False):
+                        log.debug("Rejecting stem match '{stem}' because entry is not recursive.",
+                            event_type='stemmap_lookup',
+                            stem=stem,
+                        )
+                        continue
+                    template = Template(result['template'])
+                    attribute = result.get('attribute', None)
+                    path_map = result.get('path_map', None)
+                    multi_valued = result.get('multi_valued', False)
+                    mapped_components = {}
+                    if path_map:
+                        for k, v in path_map.items():
+                            mapped_components[k] = parts[v]
+                    attrib_name = None
+                    attrib_value = None
+                    ldap_group = None
+                    target_type = None
+                    if not attribute:
+                        ldap_group = template.render(group=group_part, stem=stem, fqgroup=g, mapped_components=mapped_components)
+                        target_type = 'group'
+                    else:
+                        attrib_name = attribute
+                        attrib_value = template.render(group=group_part, stem=stem, fqgroup=g, mapped_components=mapped_components)
+                        target_type = 'attribute'
+                    create_group = result['create_group']
+                    create_posix_group = result['create_posix_group']
+                    create_context = result.get('create_context', None)
+                    log.debug(
+                        "Group '{group}' stem-mapped to '{ldap_group}'",
+                        event_type='groupmap_match',
+                        group=g,
+                        ldap_group=ldap_group) 
+                    return LDAPTarget(
+                        target_type=target_type,
+                        group=ldap_group, 
+                        create_group=create_group, 
+                        create_posix_group=create_posix_group, 
+                        create_context=create_context,
+                        attrib_name=attribute,
+                        attrib_value=attrib_value,
+                        multi_valued=multi_valued,
+                    )
+            return None 
        
     @inlineCallbacks
     def get_ldap_client(self):
@@ -1326,6 +1351,10 @@ class LDAPProvisioner(object):
                 create_posix_group = bool(value.get('create_posix_group', False))
                 create_a_group = create_group or create_posix_group
                 create_context = value.get('create_context', None)
+                attribute = value.get('attribute', None)
+                multi_valued = value.get('multi_valued', None)
+                path_map = value.get('path_map', None)
+                recursive = value.get('recursive', False)
                 if template is None:
                     log.warn(
                         "Invalid target for stem mapping '{stem}' (no 'template' option).",
@@ -1346,10 +1375,38 @@ class LDAPProvisioner(object):
                     create_group = False
                     create_posix_group = False
                     create_a_group = False
+                if attribute and create_a_group:
+                    log.warn(
+                        "Invalid target for stem mapping '{stem}' (cannot specify 'attribute' *and* 'create_...' options.",
+                        event_type='groupmap_parse_error',
+                        stem=group,
+                    ) 
+                    continue
+                if (not attribute) and multi_valued:
+                    log.warn(
+                        "Invalid target for stem mapping '{stem}' (cannot specify 'multi_valued' without 'attribute' option.",
+                        event_type='groupmap_parse_error',
+                        stem=group,
+                    ) 
+                    continue
+                if path_map and (not isinstance(path_map, Mapping)):
+                    log.warn(
+                        "Invalid target for stem mapping '{stem}' ('path_map' must map names to path component positions.",
+                        event_type='groupmap_parse_error',
+                        stem=group,
+                    ) 
+                    continue
                 props = {
                     'template': template, 
                     'create_group': create_group,
-                    'create_posix_group': create_posix_group}
+                    'create_posix_group': create_posix_group,
+                    'recursive': recursive,
+                    'multi_valued': multi_valued,
+                }
+                if attribute:
+                    props['attribute'] = attribute
+                if path_map:
+                    props['path_map'] = path_map
                 if create_a_group:
                     props['create_context'] = create_context
                 stem_map[group] = props
