@@ -297,9 +297,11 @@ class QualtricsProvisioner(RESTProvisioner):
         username = "{}#{}".format(subject.lower(), organization.lower())
         surname = attributes.get("sn", [""])[0]
         givenname = attributes.get("givenName", [""])[0]
+        displayname = attributes.get("displayName", [""])[0]
+        firstname = displayname or givenname
         email = attributes.get("mail", [""])[0]
         props = {
-            'firstName': givenname,
+            'firstName': firstname,
             'lastName': surname,
             'email': email,
             'username': username,
@@ -338,11 +340,13 @@ class QualtricsProvisioner(RESTProvisioner):
         username = "{}#{}".format(subject.lower(), organization.lower())
         surname = attributes.get("sn", [""])[0]
         givenname = attributes.get("givenName", [""])[0]
+        displayname = attributes.get("displayName", [""])[0]
+        firstname = displayname or givenname
         email = attributes.get("mail", [""])[0]
         props = {
             'username': username,
             'password': generate_password(),
-            'firstName': givenname,
+            'firstName': firstname,
             'lastName': surname,
             'userType': self.new_user_type,
             'email': email,
