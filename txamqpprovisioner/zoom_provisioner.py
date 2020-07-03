@@ -101,7 +101,7 @@ class ZoomProvisioner(RESTProvisioner):
         Make API call to obtain valid auth token.
         Should set `self.auth_token`.
         Logic in the REST provisioner will attempt to determine if an
-        authirization token has expired and needs to be renewed.  This
+        authorization token has expired and needs to be renewed.  This
         method will be called when that happens.
 
         .. note::
@@ -150,7 +150,7 @@ class ZoomProvisioner(RESTProvisioner):
     def get_all_api_ids_and_match_values(self):
         """
         Load all the remote API IDs and match values from the 
-        user accounts that exist on the remote sevice.
+        user accounts that exist on the remote service.
         Note: If a match value cannot be constructed for a remote
         account, it will not be included in the output of this function.
         """
@@ -166,7 +166,7 @@ class ZoomProvisioner(RESTProvisioner):
     def get_all_api_ids_and_match_values__(self, status='active'):
         """
         Load all the remote API IDs and match values from the 
-        user accounts that exist on the remote sevice and have status `status`.
+        user accounts that exist on the remote service and have status `status`.
         Note: If a match value cannot be constructed for a remote
         account, it will not be included in the output of this function.
         """
@@ -288,7 +288,7 @@ class ZoomProvisioner(RESTProvisioner):
         match_value = self.get_match_value_from_local_subject(subject, attributes)
         # Note: While `api_get_remote_account() takes an API ID as a parameter, for the Zoom
         # API, the email address, which also happens to be the match value, can be used
-        # interchangably with it in API calls.  Therefore, it is entirely reasonable to
+        # interchangeably with it in API calls.  Therefore, it is entirely reasonable to
         # use the match value to obtain the API ID directly *for this specific provisioner.*
         account = yield self.api_get_remote_account(match_value)
         if not account is None:
@@ -311,6 +311,10 @@ class ZoomProvisioner(RESTProvisioner):
         """
         log = self.log
         func_name = 'api_set_account_status_()'
+        if status == "deactivate":
+            allowed_response_codes = (204, 404)
+        else:
+            allowed_response_codes = (204,)
         http_client = self.http_client
         prefix = self.url_prefix
         url = "{}/users/{}/status".format(prefix, api_id)
@@ -336,7 +340,7 @@ class ZoomProvisioner(RESTProvisioner):
             content = yield resp.content()
         except Exception as ex:
             pass
-        if resp_code != 204:
+        if resp_code not in allowed_response_codes:
             raise Exception(
                 "{}: API call to set account status to '{}' returned HTTP status {}\n{}".format(
                     func_name,
@@ -364,9 +368,11 @@ class ZoomProvisioner(RESTProvisioner):
         }
         surname = attributes.get("sn", [""])[0]
         givenname = attributes.get("givenName", [""])[0]
+        new_user_type = self.new_user_type
         props = {
             'first_name': givenname,
             'last_name': surname,
+            'type': new_user_type,
         }
         serialized = json.dumps(props)
         body = StringProducer(serialized.encode('utf-8'))
@@ -430,12 +436,12 @@ class ZoomProvisioner(RESTProvisioner):
             func_name=func_name,
             code=resp_code)
         if resp_code != 201:
+            log.warn(
+                "There was an issue adding subject `{subject}` with attributes: {attributes}.",
+                subject=subject,
+                attributes=attributes,
+            )
             content = yield resp.content()
-            #log.error(
-            #    "{func_name}: API response {code}: {content}",
-            #    func_name=func_name,
-            #    code=resp_code,
-            #    content=content)
             raise Exception("{}: API returned status {}".format(func_name, resp_code))
         parsed = yield resp.json()
         api_id = self.get_match_value_from_remote_account(parsed)
@@ -524,7 +530,7 @@ class ZoomProvisioner(RESTProvisioner):
     @inlineCallbacks
     def api_get_all_target_groups(self):
         """
-        Load all target_groups from the sevice.
+        Load all target_groups from the service.
         Must return an iterable that yields tuples of
         (local_group_id, remote_group_id).
         """
@@ -564,7 +570,7 @@ class ZoomProvisioner(RESTProvisioner):
     @inlineCallbacks
     def get_subjects_for_target_group(self, target_group_id):
         """
-        Retireve a list of remote subject IDs that belong to a target_group identified
+        Retrieve a list of remote subject IDs that belong to a target_group identified
         by remote target_group_id.
         """
         log = self.log
