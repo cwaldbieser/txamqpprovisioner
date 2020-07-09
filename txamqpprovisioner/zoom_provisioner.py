@@ -172,6 +172,7 @@ class ZoomProvisioner(RESTProvisioner):
         """
         log = self.log
         func_name = 'get_all_api_ids_and_match_values__()'
+        new_user_type = self.new_user_type
         http_client = self.http_client
         prefix = self.url_prefix
         user_list_page_size = self.user_list_page_size
@@ -211,6 +212,11 @@ class ZoomProvisioner(RESTProvisioner):
             received_page_count = parsed["page_count"]
             users = parsed['users']
             for user in users:
+                user_type = user["type"]
+                if user_type != new_user_type:
+                    # Users are partitioned by license type, so a list of "all users"
+                    # should only see users of the same type the provisioner handles.
+                    continue
                 remote_id = self.get_api_id_from_remote_account(user)
                 match_value = self.get_match_value_from_remote_account(user)    
                 identifiers.append((remote_id, match_value))
