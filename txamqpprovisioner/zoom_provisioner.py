@@ -42,6 +42,8 @@ class ZoomProvisioner(RESTProvisioner):
     jwt_expiration_seconds = 30
     user_list_page_size = 100
     max_page_loops = 1000
+    update_status = True
+    update_license = False
     
     def get_match_value_from_remote_account(self, remote_account):
         """
@@ -94,6 +96,10 @@ class ZoomProvisioner(RESTProvisioner):
         self.jwt_expiration_seconds = jwt_expiration_seconds
         user_list_page_size = int(config.get("user_list_page_size", "100"))
         self.user_list_page_size = user_list_page_size
+        update_status = tobool(config.get("update_status", "yes"))
+        self.update_status = update_status
+        update_license = tobool(config.get("update_license", "yes"))
+        self.update_license = update_license
 
     @inlineCallbacks
     def api_get_auth_token(self):
@@ -280,7 +286,8 @@ class ZoomProvisioner(RESTProvisioner):
         `api_id`.
         """
         log = self.log
-        yield self.api_set_account_status_('deactivate', api_id)
+        if self.update_status:
+            yield self.api_set_account_status_('deactivate', api_id)
 
     @inlineCallbacks
     def api_get_account_id(self, subject, attributes):
@@ -308,7 +315,8 @@ class ZoomProvisioner(RESTProvisioner):
         """
         Call the Zoom API to set an account's status to active.
         """
-        yield self.api_set_account_status_('activate', api_id)
+        if self.update_status:
+            yield self.api_set_account_status_('activate', api_id)
 
     @inlineCallbacks
     def api_set_account_status_(self, status, api_id):
@@ -378,8 +386,9 @@ class ZoomProvisioner(RESTProvisioner):
         props = {
             'first_name': givenname,
             'last_name': surname,
-            'type': new_user_type,
         }
+        if self.update_license:
+            props["type"] = new_user_type
         serialized = json.dumps(props)
         body = StringProducer(serialized.encode('utf-8'))
         log.debug("url: {url}", url=url)
@@ -637,5 +646,19 @@ class ZoomProvisionerFactory(RESTProvisionerFactory):
     opt_help = "Zoom REST API Provisioner"
     opt_usage = "This plugin does not support any options."
     provisioner_factory = ZoomProvisioner
+
+
+def tobool(s):
+    """
+    Convert a collection of configuration values to a boolean value.
+    """
+    if s is None:
+        return False
+    s = str(s)
+    if s[0] in "yYtT1":
+        return True
+    if s[0] in "nNfF0":
+        return False
+    raise ValueError("Cannot convert `{}` to a boolean value.".format(s))
 
 
