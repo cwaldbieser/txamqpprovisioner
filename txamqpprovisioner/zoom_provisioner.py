@@ -98,8 +98,10 @@ class ZoomProvisioner(RESTProvisioner):
         self.user_list_page_size = user_list_page_size
         update_status = tobool(config.get("update_status", "yes"))
         self.update_status = update_status
+        log.debug("update_status: {update_status}", update_status=update_status)
         update_license = tobool(config.get("update_license", "yes"))
         self.update_license = update_license
+        log.debug("update_license: {update_license}", update_license=update_license)
 
     @inlineCallbacks
     def api_get_auth_token(self):
@@ -388,6 +390,7 @@ class ZoomProvisioner(RESTProvisioner):
             'last_name': surname,
         }
         if self.update_license:
+            log.debug("Updating license type.")
             props["type"] = new_user_type
         serialized = json.dumps(props)
         body = StringProducer(serialized.encode('utf-8'))
