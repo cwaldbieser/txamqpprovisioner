@@ -100,6 +100,7 @@ class CrashplanProvisioner(RESTProvisioner):
         http_client = self.http_client
         headers = {
             'Accept': ['application/json'],
+            'User-Agent': ['CrashPlan User Provisioner'],
         }
         client_secret = self.client_secret
         params = {
@@ -137,8 +138,8 @@ class CrashplanProvisioner(RESTProvisioner):
             content = yield response.content()
             raise Exception(
                 "Unable to obtain valid auth token.  Response {}: {}".format(
-                response_code=resp_code,
-                content=content)
+                resp_code,
+                content)
             )
 
     @inlineCallbacks
