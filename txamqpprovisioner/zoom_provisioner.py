@@ -383,7 +383,9 @@ class ZoomProvisioner(RESTProvisioner):
             'Content-Type': ['application/json'],
         }
         surname = attributes.get("sn", [""])[0]
-        givenname = attributes.get("givenName", [""])[0]
+        givenname = attributes.get("displayName", [""])[0]
+        if givenname == "":
+            givenname = attributes.get("givenName", [""])[0]
         new_user_type = self.new_user_type
         props = {
             'first_name': givenname,
