@@ -50,6 +50,8 @@ class QualtricsProvisioner(RESTProvisioner):
     organization = None
     new_user_type = None
     language = 'en'
+    delete_from_cache = False
+
     
     def get_match_value_from_remote_account(self, remote_account):
         """

@@ -142,6 +142,7 @@ class RESTProvisioner(object):
     group_sync_strategy = "add-members-first"
     account_cache_validity_period = 0
     trust_account_cache__ = False
+    delete_from_cache = True
 
     def get_match_value_from_remote_account(self, remote_account):
         """
@@ -974,7 +975,8 @@ class RESTProvisioner(object):
         account_cache = self.__account_cache
         if not subject is None:
             if subject in account_cache:
-                del account_cache[subject]
+                if self.delete_from_cache:
+                    del account_cache[subject]
         else:
             for subject, r_id in account_cache.items():
                 if api_id == r_id:
