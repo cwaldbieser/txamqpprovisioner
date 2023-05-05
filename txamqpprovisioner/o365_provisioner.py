@@ -325,8 +325,8 @@ class O365Provisioner(RESTProvisioner):
             'Accept': ['application/json'],
             'Content-Type': ['application/json'],
         }
-        surname = attributes.get("sn", [""])[0]
-        givenname = attributes.get("givenName", [""])[0]
+        surname = attributes.get("sn", [""])[0].encode("utf-8")
+        givenname = attributes.get("givenName", [""])[0].encode("utf-8")
         displayname = "{0}, {1}".format(surname, givenname)
         upn = "{0}@{1}".format(subject, self.domain)
         immutable_id = attributes.get("bannerLNumber", [None])[0]
@@ -370,8 +370,8 @@ class O365Provisioner(RESTProvisioner):
             'Accept': ['application/json'],
             'Content-Type': ['application/json'],
         }
-        surname = attributes.get("sn", [""])[0]
-        givenname = attributes.get("givenName", [""])[0]
+        surname = attributes.get("sn", [""])[0].encode('utf-8')
+        givenname = attributes.get("givenName", [""])[0].encode("utf-8")
         displayname = "{0}, {1}".format(surname, givenname)
         upn = "{0}@{1}".format(subject, self.domain)
         immutable_id = attributes.get("bannerLNumber", [None])[0]
