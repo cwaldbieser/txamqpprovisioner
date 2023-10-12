@@ -1389,11 +1389,12 @@ class LDAPProvisioner(object):
                     if "member" in result or "memberUid" in result:
                         members = set([m for m in result.get(key)])
                         range_complete = True
-                        log.debug(
-                            "No range.  {member_count} members.",
-                            member_count=len(members),
-                        )
-                        break
+                    else:
+                        range_complete = True
+                    log.debug(
+                        "No range.  {member_count} members.", member_count=len(members)
+                    )
+                    break
         returnValue((results[0], members))
 
     @inlineCallbacks
