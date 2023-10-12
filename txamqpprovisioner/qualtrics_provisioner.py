@@ -1,22 +1,14 @@
-
 from __future__ import print_function
+
 import itertools
 import json
 import random
 import string
-import urlparse
-import commentjson
-from rest_provisioner import (
-    APIResponseError,
-    OptionMissingError,
-    RESTProvisioner,
-    RESTProvisionerFactory, 
-    StringProducer,
-)
-from twisted.internet.defer import (
-    inlineCallbacks, 
-    returnValue,
-)
+
+from rest_provisioner import (OptionMissingError, RESTProvisioner,
+                              RESTProvisionerFactory, StringProducer)
+from twisted.internet.defer import inlineCallbacks, returnValue
+
 
 def generate_password():
     """
@@ -26,10 +18,13 @@ def generate_password():
     lowers = [random.choice(string.ascii_lowercase) for n in range(2)]
     punct = [random.choice(string.punctuation)]
     digit = [random.choice(string.digits)]
-    others = [random.choice(string.ascii_letters + string.punctuation + string.digits) for n in range(9)]
+    others = [
+        random.choice(string.ascii_letters + string.punctuation + string.digits)
+        for n in range(9)
+    ]
     concat = list(itertools.chain(caps, lowers, punct, digit, others))
     random.shuffle(concat)
-    return ''.join(concat)
+    return "".join(concat)
 
 
 class QualtricsProvisioner(RESTProvisioner):
@@ -47,21 +42,20 @@ class QualtricsProvisioner(RESTProvisioner):
       should not be managed by the provisioner (e.g. a back door admin account).
       These accounts are identified by their match_values.
     """
+
     organization = None
     new_user_type = None
-    language = 'en'
+    language = "en"
     delete_from_cache = False
 
-    
     def get_match_value_from_remote_account(self, remote_account):
         """
         Given a remote account, `remote_account`, extract the
-        value that will be used to match the remote account 
+        value that will be used to match the remote account
         to the local subject.
         Returns None if a match value cannot be constructed for the remote
         account.
         """
-        log = self.log
         organization = self.organization
         match_value = remote_account.get("username", None)
         if match_value is not None:
@@ -90,19 +84,16 @@ class QualtricsProvisioner(RESTProvisioner):
         """
         Parse any additional configuration this provisioner might need.
         """
-        log = self.log
         config = self.config
         organization = config.get("organization", None)
         if organization is None:
-            raise OptionMissingError(
-                "The `organization` option is missing!") 
+            raise OptionMissingError("The `organization` option is missing!")
         self.organization = organization
         new_user_type = config.get("new_user_type", None)
         if new_user_type is None:
-            raise OptionMissingError(
-                "The `new_user_type` option is missing!")
+            raise OptionMissingError("The `new_user_type` option is missing!")
         self.new_user_type = new_user_type
-        language = config.get("language", 'en')
+        language = config.get("language", "en")
         self.language = language
 
     @inlineCallbacks
@@ -111,7 +102,6 @@ class QualtricsProvisioner(RESTProvisioner):
         Make API call to obtain valid auth token.
         Should set `self.auth_token`.
         """
-        log = self.log
         if False:
             yield None
         self.auth_token = self.client_secret
@@ -120,7 +110,7 @@ class QualtricsProvisioner(RESTProvisioner):
     @inlineCallbacks
     def authorize_api_call(self, method, url, **http_options):
         """
-        Given the components of an *unauthenticated* HTTP client request, 
+        Given the components of an *unauthenticated* HTTP client request,
         return the components of an authenticated request.
 
         Should return a tuple of (method, url, http_options)
@@ -137,18 +127,17 @@ class QualtricsProvisioner(RESTProvisioner):
     @inlineCallbacks
     def get_all_api_ids_and_match_values(self):
         """
-        Load all the remote subject IDs and match values from the 
+        Load all the remote subject IDs and match values from the
         user accounts that exist on the remote sevice.
         Note: If a match value cannot be constructed for a remote
         account, it will not be included in the output of this function.
         """
         log = self.log
         log.debug("Attempting to fetch local IDs from all remote user accounts ...")
-        http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}/users".format(prefix)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
         identifiers = []
         while True:
@@ -156,24 +145,25 @@ class QualtricsProvisioner(RESTProvisioner):
             log.debug("headers: {headers}", headers=headers)
             try:
                 resp = yield self.make_authenticated_api_call(
-                    "GET",
-                    url,
-                    headers=headers)
-            except Exception as ex:
+                    "GET", url, headers=headers
+                )
+            except Exception:
                 log.error("Error fetching all remote user data.")
                 raise
             parsed = yield resp.json()
             meta = parsed["meta"]
             http_status = meta["httpStatus"]
             if http_status != "200 - OK":
-                raise Exception("Error making API call to fetch all users: {}".format(http_status))
-            result = parsed['result']
-            elements = result['elements']
-            next_page = result.get('nextPage', None)
+                raise Exception(
+                    "Error making API call to fetch all users: {}".format(http_status)
+                )
+            result = parsed["result"]
+            elements = result["elements"]
+            next_page = result.get("nextPage", None)
             for entry in elements:
                 api_id = self.get_api_id_from_remote_account(entry)
                 match_value = self.get_match_value_from_remote_account(entry)
-                if not match_value is None:
+                if match_value is not None:
                     identifiers.append((api_id, match_value))
             if next_page is not None:
                 url = next_page
@@ -188,19 +178,14 @@ class QualtricsProvisioner(RESTProvisioner):
         """
         log = self.log
         log.debug("Attempting to fetch remote account ...")
-        http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}/users/{1}".format(prefix, api_id)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
-        identifiers = []
         log.debug("URL (GET): {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
-        resp = yield self.make_authenticated_api_call(
-            "GET",
-            url,
-            headers=headers)
+        resp = yield self.make_authenticated_api_call("GET", url, headers=headers)
         remote_account = yield resp.json()
         returnValue(remote_account)
 
@@ -211,39 +196,43 @@ class QualtricsProvisioner(RESTProvisioner):
         `api_id`.
         """
         log = self.log
-        http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}/users/{1}".format(prefix, api_id)
         headers = {
-            'Accept': ['application/json'],
-            'Content-Type': ['application/json'],
+            "Accept": ["application/json"],
+            "Content-Type": ["application/json"],
         }
         props = {
-            'status': 'disabled',
+            "status": "disabled",
         }
         serialized = json.dumps(props)
-        body = StringProducer(serialized.encode('utf-8'))
+        body = StringProducer(serialized.encode("utf-8"))
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("body: {body}", body=serialized)
         resp = yield self.make_authenticated_api_call(
-            "PUT",
-            url,
-            headers=headers,
-            data=body)
+            "PUT", url, headers=headers, data=body
+        )
         resp_code = resp.code
         if resp_code == 400:
-            #Invalidate cache
+            # Invalidate cache
             self.invalidate_cached_subject_api(api_id)
-            raise Exception("api_deprovision_subject: Client error using API ID '{}'.  Cached subject API ID has been invalidated.".format(api_id))
-        content = "" 
+            raise Exception(
+                "api_deprovision_subject: Client error using API ID '{}'."
+                "  Cached subject API ID has been invalidated.".format(api_id)
+            )
+        content = ""
         try:
             content = yield resp.content()
-        except Exception as ex:
+        except Exception:
             pass
         if resp_code != 200:
-            content = '\n{}'.format(content)
-            raise Exception("API call to deprovision subject returned HTTP status {}.{}".format(resp_code, content))
+            content = "\n{}".format(content)
+            raise Exception(
+                "API call to deprovision subject returned HTTP status {}.{}".format(
+                    resp_code, content
+                )
+            )
         returnValue(None)
 
     @inlineCallbacks
@@ -254,21 +243,28 @@ class QualtricsProvisioner(RESTProvisioner):
         """
         log = self.log
         cached_result = self.get_subject_api_id_from_cache(subject)
-        if not cached_result is None:
+        if cached_result is not None:
             returnValue(cached_result)
         organization = self.organization
         offset = len(organization) + 1
         offset = offset * -1
-        computed_match_value = self.get_match_value_from_local_subject(subject, attributes)
+        computed_match_value = self.get_match_value_from_local_subject(
+            subject, attributes
+        )
         results = yield self.get_all_api_ids_and_match_values()
-        log.debug("computed_match_value={computed_match_value}", computed_match_value=computed_match_value)
+        log.debug(
+            "computed_match_value={computed_match_value}",
+            computed_match_value=computed_match_value,
+        )
         log.debug("len(results) == {size}", size=len(results))
         account_map = {}
         for api_id, match_value in results:
             if match_value.lower().endswith("#{}".format(organization)):
                 subj = match_value[:offset]
                 account_map[subj] = api_id
-        log.debug("Filling account cache with map of size {size}.", size=len(account_map))
+        log.debug(
+            "Filling account cache with map of size {size}.", size=len(account_map)
+        )
         if subject in account_map:
             log.debug("Subject '{subject}' is in account_map.", subject=subject)
         else:
@@ -292,8 +288,8 @@ class QualtricsProvisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users/{1}".format(prefix, api_id)
         headers = {
-            'Accept': ['application/json'],
-            'Content-Type': ['application/json'],
+            "Accept": ["application/json"],
+            "Content-Type": ["application/json"],
         }
         organization = self.organization
         username = "{}#{}".format(subject.lower(), organization.lower())
@@ -303,29 +299,27 @@ class QualtricsProvisioner(RESTProvisioner):
         firstname = displayname or givenname
         email = attributes.get("mail", [""])[0]
         props = {
-            'firstName': firstname,
-            'lastName': surname,
-            'email': email,
-            'username': username,
-            'status': 'active',
+            "firstName": firstname,
+            "lastName": surname,
+            "email": email,
+            "username": username,
+            "status": "active",
         }
         serialized = json.dumps(props)
-        body = StringProducer(serialized.encode('utf-8'))
+        body = StringProducer(serialized.encode("utf-8"))
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("body: {body}", body=serialized)
         resp = yield self.make_authenticated_api_call(
-            'PUT',  
-            url, 
-            data=body, 
-            headers=headers)
+            "PUT", url, data=body, headers=headers
+        )
         returnValue(resp)
 
     @inlineCallbacks
     def api_add_subject(self, subject, attributes):
         """
         Use the API to add subjects.
-        
+
         Returns the API ID of the newly created remote account or None.
         If None is returned, the API ID will not be cached and require
         a lookup on future use.
@@ -335,8 +329,8 @@ class QualtricsProvisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users".format(prefix)
         headers = {
-            'Accept': ['application/json'],
-            'Content-Type': ['application/json'],
+            "Accept": ["application/json"],
+            "Content-Type": ["application/json"],
         }
         organization = self.organization
         username = "{}#{}".format(subject.lower(), organization.lower())
@@ -346,43 +340,40 @@ class QualtricsProvisioner(RESTProvisioner):
         firstname = displayname or givenname
         email = attributes.get("mail", [""])[0]
         props = {
-            'username': username,
-            'password': generate_password(),
-            'firstName': firstname,
-            'lastName': surname,
-            'userType': self.new_user_type,
-            'email': email,
-            'language': self.language,
+            "username": username,
+            "password": generate_password(),
+            "firstName": firstname,
+            "lastName": surname,
+            "userType": self.new_user_type,
+            "email": email,
+            "language": self.language,
         }
         serialized = json.dumps(props)
-        body = StringProducer(serialized.encode('utf-8'))
+        body = StringProducer(serialized.encode("utf-8"))
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("body: {body}", body=serialized)
         resp = yield self.make_authenticated_api_call(
-            'POST',  
-            url, 
-            data=body, 
-            headers=headers)
+            "POST", url, data=body, headers=headers
+        )
         resp_code = resp.code
         log.debug("Add-subject API response code: {code}", code=resp_code)
         if resp_code != 200:
             content = yield resp.content()
-            log.error(
-                "API response {code}: {content}", 
-                code=resp_code,
-                content=content)
+            log.error("API response {code}: {content}", code=resp_code, content=content)
             raise Exception("API returned status {0}".format(resp_code))
         else:
             parsed = yield resp.json()
             log.debug("Parse API result is: {parsed}", parsed=parsed)
-            if not "result" in parsed:
-                raise Exception("Error in `api_add_subject()`: {}".format(
-                    json.dumps(parsed))) 
-            result = parsed['result']
-            if not "id" in result:
-                raise Exception("Error in `api_add_subject()`: {}".format(
-                    json.dumps(parsed))) 
+            if "result" not in parsed:
+                raise Exception(
+                    "Error in `api_add_subject()`: {}".format(json.dumps(parsed))
+                )
+            result = parsed["result"]
+            if "id" not in result:
+                raise Exception(
+                    "Error in `api_add_subject()`: {}".format(json.dumps(parsed))
+                )
             api_id = result["id"]
             returnValue(api_id)
 
@@ -421,7 +412,6 @@ class QualtricsProvisioner(RESTProvisioner):
         """
         if False:
             yield "Can't wait for async/await!"
-        log = self.log  
         raise NotImplementedError()
 
     @inlineCallbacks
@@ -432,7 +422,6 @@ class QualtricsProvisioner(RESTProvisioner):
         """
         if False:
             yield "Can't wait for async/await!"
-        log = self.log  
         raise NotImplementedError()
 
 
@@ -441,5 +430,3 @@ class QualtricsProvisionerFactory(RESTProvisionerFactory):
     opt_help = "Qualtrics REST API Provisioner"
     opt_usage = "This plugin does not support any options."
     provisioner_factory = QualtricsProvisioner
-
-

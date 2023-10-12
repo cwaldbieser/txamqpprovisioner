@@ -1,54 +1,44 @@
-
 from __future__ import print_function
-from collections import namedtuple
-import datetime
+
 import json
-import commentjson
-import jinja2 
-from textwrap import dedent
 import traceback
+from collections import namedtuple
+from textwrap import dedent
+
 import attr
+import commentjson
+import constants
+import jinja2
 import pylru
 import treq
+from config import load_config, section2dict
+from errors import OptionMissingError
+from interface import IProvisioner, IProvisionerFactory
 from twisted.internet import defer, task
-from twisted.internet.defer import (
-    inlineCallbacks, 
-    returnValue,
-)
-from twisted.internet.endpoints import clientFromString, connectProtocol
-from twisted.internet.task import LoopingCall
-from twisted.web.client import(
-    Agent,
-    HTTPConnectionPool,
-)
-from twisted.web.iweb import (
-    IAgentEndpointFactory,
-    IBodyProducer,
-)
+from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.internet.endpoints import clientFromString
 from twisted.logger import Logger
 from twisted.plugin import IPlugin
-from zope.interface import implements, implementer
-from config import load_config, section2dict
-import constants
-from errors import (
-    OptionMissingError,
-)
-from interface import (
-    IProvisionerFactory,
-    IProvisioner,
-)
-from utils import get_plugin_factory
+from twisted.web.client import Agent, HTTPConnectionPool
+from twisted.web.iweb import IAgentEndpointFactory, IBodyProducer
+from zope.interface import implementer, implements
+
+
+class UnknownActionError(Exception):
+    pass
+
 
 def get_match_value_from_remote_account(remote_account):
     """
     Given a remote account, `remote_account`, extract the
-    value that will be used to match the remote account 
+    value that will be used to match the remote account
     to the local subject.
     """
     match_value = remote_account.get("login", None)
     if match_value is not None:
         return match_value.lower()
     return match_value
+
 
 def get_api_id_from_remote_account(remote_account):
     """
@@ -57,6 +47,7 @@ def get_api_id_from_remote_account(remote_account):
     calls that reference the account.
     """
     return remote_account.get("id", None)
+
 
 @attr.attrs
 class ParsedSubjectMessage(object):
@@ -99,6 +90,7 @@ class WebClientEndpointFactory(object):
     """
     An Agent endpoint factory based on endpoint strings.
     """
+
     def __init__(self, reactor, endpoint_s):
         self.reactor = reactor
         self.endpoint_s = endpoint_s
@@ -146,9 +138,9 @@ class BoardEffectProvisioner(object):
     log = None
 
     def load_config(self, config_file, default_log_level, logObserverFactory):
-        """                                                             
-        Load the configuration for this provisioner and initialize it.  
-        """             
+        """
+        Load the configuration for this provisioner and initialize it.
+        """
         log = Logger(observer=logObserverFactory("ERROR"))
         try:
             # Load config.
@@ -157,17 +149,17 @@ class BoardEffectProvisioner(object):
             config = section2dict(scp, section)
             self.config = config
             # Start logger.
-            log_level = config.get('log_level', default_log_level)
+            log_level = config.get("log_level", default_log_level)
             log = Logger(observer=logObserverFactory(log_level))
             self.log = log
-            log.info("Initializing provisioner.",
-                event_type='init_provisioner')
+            log.info("Initializing provisioner.", event_type="init_provisioner")
             # Load API configuration info-- endpoint info, URL, API key.
             try:
                 self.diagnostic_mode = bool(int(config.get("diagnostic_mode", 0)))
                 self.unmanaged_logins = set(
-                    login.lower() 
-                        for login in config.get("unmanaged_logins", "").split())
+                    login.lower()
+                    for login in config.get("unmanaged_logins", "").split()
+                )
                 self.provision_group = config.get("provision_group", None)
                 if self.provision_group is not None:
                     self.provision_group = self.provision_group.lower()
@@ -176,30 +168,39 @@ class BoardEffectProvisioner(object):
                 self.url_prefix = config["url_prefix"]
                 self.api_key = config["api_key"]
                 self.cache_size = int(config["cache_size"])
-                self.authenticate = config['authenticate']
-                self.accounts_query = config['accounts_query']
-                self.max_page = int(config.get('max_page', 100))
-                self.local_computed_match_template = jinja2.Template(config['local_computed_match_template'])
+                self.authenticate = config["authenticate"]
+                self.accounts_query = config["accounts_query"]
+                self.max_page = int(config.get("max_page", 100))
+                self.local_computed_match_template = jinja2.Template(
+                    config["local_computed_match_template"]
+                )
                 if self.provision_group:
-                    self.account_update = jinja2.Template(config['account_update'])
-                    self.account_delete = jinja2.Template(config['account_delete'])
-                    self.account_add = config['account_add']
-                    account_template_path = config['account_template']
+                    self.account_update = jinja2.Template(config["account_update"])
+                    self.account_delete = jinja2.Template(config["account_delete"])
+                    self.account_add = config["account_add"]
+                    account_template_path = config["account_template"]
                     attrib_map_path = config["attribute_map"]
                 if workroom_map_path:
-                    self.workrooms_query = config['workrooms_query']
-                    self.workroom_members = jinja2.Template(config['workroom_members'])
-                    self.workroom_subject = jinja2.Template(config['workroom_subject'])
-                    self.workroom_cache_size = int(config.get("workroom_cache_size", 100))
-                    self.workroom_retry_delay = int(config.get("workroom_retry_delay", 20))
+                    self.workrooms_query = config["workrooms_query"]
+                    self.workroom_members = jinja2.Template(config["workroom_members"])
+                    self.workroom_subject = jinja2.Template(config["workroom_subject"])
+                    self.workroom_cache_size = int(
+                        config.get("workroom_cache_size", 100)
+                    )
+                    self.workroom_retry_delay = int(
+                        config.get("workroom_retry_delay", 20)
+                    )
             except KeyError as ex:
                 raise OptionMissingError(
                     "A require option was missing: '{0}:{1}'.".format(
-                        section, ex.args[0]))
+                        section, ex.args[0]
+                    )
+                )
             if self.provision_group is None and workroom_map_path is None:
                 raise OptionMissingError(
                     "Must provide at least one of `provision_group` (account "
-                    "provisioning) or `workroom_map` (workroom mapping).")
+                    "provisioning) or `workroom_map` (workroom mapping)."
+                )
             # Create the web client.
             self.make_default_web_client()
             self.__workroom_cache = None
@@ -219,7 +220,7 @@ class BoardEffectProvisioner(object):
             self.__auth_token = None
             log.info("Diagnostic mode: {diagnostic}", diagnostic=self.diagnostic_mode)
         except Exception as ex:
-            d = self.reactor.callLater(0, self.reactor.stop)
+            self.reactor.callLater(0, self.reactor.stop)
             log.failure("Provisioner failed to initialize: {0}".format(ex))
             raise
         return defer.succeed(None)
@@ -246,22 +247,22 @@ class BoardEffectProvisioner(object):
         for k, v in doc.items():
             try:
                 self.attribute_map[k.lower()] = jinja2.Template(v)
-            except jinja2.exceptions.TemplateError as ex:
+            except jinja2.exceptions.TemplateError:
                 log.error(
-                    "Error parsing attribute template for '{attribute}'",
-                    attribute=k)
+                    "Error parsing attribute template for '{attribute}'", attribute=k
+                )
                 raise
-                     
+
     def make_account_template(self, path):
         with open(path, "r") as f:
             data = f.read()
         self.account_template = jinja2.Template(data)
 
-    @inlineCallbacks                                                   
-    def provision(self, amqp_message):             
-        """                                                
-        Provision an entry based on an AMQP message.  
-        """                                              
+    @inlineCallbacks
+    def provision(self, amqp_message):
+        """
+        Provision an entry based on an AMQP message.
+        """
         log = self.log
         workroom_map = self.workroom_map
         try:
@@ -271,9 +272,11 @@ class BoardEffectProvisioner(object):
             if group == self.provision_group:
                 if workroom is not None:
                     log.warn(
-                        "Group '{group}' is the account provisioning group AND in the workroom map."
+                        "Group '{group}' is the account provisioning "
+                        "group AND in the workroom map."
                         "  It will NEVER be used for workroom mapping.",
-                        group=group)
+                        group=group,
+                    )
                 if msg.action in (constants.ACTION_ADD, constants.ACTION_UPDATE):
                     yield self.provision_subject(msg.subject, msg.attributes)
                 elif msg.action == constants.ACTION_DELETE:
@@ -282,22 +285,35 @@ class BoardEffectProvisioner(object):
                     yield self.sync_members(msg.subjects, msg.attributes)
                 else:
                     raise UnknownActionError(
-                        "Don't know how to handle action '{0}' for provisioning.".format(msg.action))
+                        "Don't know how to handle action '{0}' for provisioning.".format(
+                            msg.action
+                        )
+                    )
             elif workroom is not None:
                 workroom = workroom.lower()
                 if msg.action == constants.ACTION_ADD:
-                    yield self.add_subject_to_workroom(workroom, msg.subject, msg.attributes)    
+                    yield self.add_subject_to_workroom(
+                        workroom, msg.subject, msg.attributes
+                    )
                 elif msg.action == constants.ACTION_DELETE:
-                    yield self.remove_subject_from_workroom(workroom, msg.subject, msg.attributes)
+                    yield self.remove_subject_from_workroom(
+                        workroom, msg.subject, msg.attributes
+                    )
                 elif msg.action == constants.ACTION_MEMBERSHIP_SYNC:
-                    yield self.sync_subjects_to_workroom(workroom, msg.subjects, msg.attributes)
+                    yield self.sync_subjects_to_workroom(
+                        workroom, msg.subjects, msg.attributes
+                    )
                 else:
                     raise UnknownActionError(
-                        "Don't know how to handle action '{0}' for workrooms.".format(msg.action))
+                        "Don't know how to handle action '{0}' for workrooms.".format(
+                            msg.action
+                        )
+                    )
             else:
                 log.warn(
                     "Not sure what to do with group '{group}'.  Discarding ...",
-                    group=group)
+                    group=group,
+                )
         except Exception as ex:
             log.warn("Error provisioning message: {error}", error=ex)
             tb = traceback.format_exc()
@@ -305,37 +321,39 @@ class BoardEffectProvisioner(object):
             raise
 
     def get_config_defaults(self):
-        return dedent("""\
+        return dedent(
+            """\
             [PROVISIONER]
             diagnostic_mode = 0
             url_prefix = https://lafayette.boardeffect.com/api/v3
             cache_size = 1000
-            """)
+            """
+        )
 
     def parse_message(self, msg):
         """
         Parse message into a standard form.
         """
-        log = self.log
         provision_group = self.provision_group
         serialized = msg.content.body
         doc = json.loads(serialized)
-        action = doc['action']
-        group = doc['group'].lower()
+        action = doc["action"]
+        group = doc["group"].lower()
         single_subject_actions = (
             constants.ACTION_ADD,
             constants.ACTION_DELETE,
-            constants.ACTION_UPDATE)
+            constants.ACTION_UPDATE,
+        )
         if group == provision_group:
             if action in single_subject_actions:
-                subject = doc['subject'].lower()
+                subject = doc["subject"].lower()
                 attributes = None
-                if action  != constants.ACTION_DELETE:
-                    attributes = doc['attributes']
+                if action != constants.ACTION_DELETE:
+                    attributes = doc["attributes"]
                 return ParsedSubjectMessage(action, group, subject, attributes)
             elif action == constants.ACTION_MEMBERSHIP_SYNC:
-                subjects = doc['subjects']
-                attributes = doc['attributes']
+                subjects = doc["subjects"]
+                attributes = doc["attributes"]
                 return ParsedSyncMessage(action, group, subjects, attributes)
         else:
             if action in single_subject_actions:
@@ -356,11 +374,8 @@ class BoardEffectProvisioner(object):
         attrib_map = self.attribute_map
         props = {}
         for prop_name, template in attrib_map.items():
-            value = template.render(
-                subject=subject,
-                attributes=attribs,
-                action=action)
-            if value != u'\x00':
+            value = template.render(subject=subject, attributes=attribs, action=action)
+            if value != "\x00":
                 props[prop_name] = value
         return props
 
@@ -370,7 +385,6 @@ class BoardEffectProvisioner(object):
         Sync all subects to Board Effect accounts.
         (Except non-SSO accounts).
         """
-        log = self.log
         unmanaged_logins = self.unmanaged_logins
         for subject in subjects:
             subject = subject.lower()
@@ -382,8 +396,8 @@ class BoardEffectProvisioner(object):
         local_match_set = set([])
         for subject in subjects:
             local_match = local_computed_match_template.render(
-                subject=subject,
-                attributes=attrib_map[subject])
+                subject=subject, attributes=attrib_map[subject]
+            )
             local_match_set.add(local_match)
         doc = yield self.fetch_all_users()
         account_data = doc["data"]
@@ -394,9 +408,9 @@ class BoardEffectProvisioner(object):
             match_value = get_match_value_from_remote_account(entry)
             if match_value in unmanaged_logins:
                 continue
-            if not match_value in local_match_set:
+            if match_value not in local_match_set:
                 remote_id = get_api_id_from_remote_account(entry)
-                yield self.deprovision_subject(None, None, remote_id=remote_id) 
+                yield self.deprovision_subject(None, None, remote_id=remote_id)
 
     @inlineCallbacks
     def provision_subject(self, subject, attributes):
@@ -404,9 +418,7 @@ class BoardEffectProvisioner(object):
         Provision a subject to Board Effect.
         """
         log = self.log
-        log.debug(
-            "Attempting to provision subject '{subject}'.",
-            subject=subject)
+        log.debug("Attempting to provision subject '{subject}'.", subject=subject)
         remote_id = yield self.fetch_account_id(subject, attributes)
         if remote_id is not None:
             yield self.update_subject(subject, remote_id, attributes)
@@ -424,12 +436,9 @@ class BoardEffectProvisioner(object):
             log.debug("Must obtain auth token ...")
             http_client = self.http_client
             prefix = self.url_prefix
-            auth_url = "{0}{1}".format(
-                prefix,
-                self.authenticate 
-            )
+            auth_url = "{0}{1}".format(prefix, self.authenticate)
             headers = {
-                'Accept': ['application/json'],
+                "Accept": ["application/json"],
             }
             api_key = self.api_key
             data = dict(api_key=api_key)
@@ -437,30 +446,39 @@ class BoardEffectProvisioner(object):
             log.debug("method: POST, URL: {url}", url=auth_url)
             response = yield http_client.post(auth_url, data=data, headers=headers)
             resp_code = response.code
-            log.debug("API call to obtain token is complete.  Response code: {code}", code=resp_code)
+            log.debug(
+                "API call to obtain token is complete.  Response code: {code}",
+                code=resp_code,
+            )
             if resp_code == 200:
                 try:
                     doc = yield response.json()
-                except Exception as ex:
-                    log.error("Error attempting to parse response to authentication request.")
+                except Exception:
+                    log.error(
+                        "Error attempting to parse response to authentication request."
+                    )
                     raise
-                if not "data" in doc:
-                    log.error("Error attempting to parse response to authentication request.")
+                if "data" not in doc:
+                    log.error(
+                        "Error attempting to parse response to authentication request."
+                    )
                     raise Exception("Error parsing authentication response.")
                 data = doc["data"]
                 if not "token" in data:
-                    log.error("Error attempting to parse response to authentication request.")
+                    log.error(
+                        "Error attempting to parse response to authentication request."
+                    )
                     raise Exception("Error parsing authentication response.")
                 self.__auth_token = data["token"]
-                auth_token =  self.__auth_token
+                auth_token = self.__auth_token
                 log.debug("New auth token obtained.")
             else:
                 self.check_unauthorized_response(response)
                 content = yield response.content()
                 raise Exception(
                     "Unable to obtain valid auth token.  Response {0}: {1}".format(
-                    response_code=resp_code,
-                    content=content)
+                        response_code=resp_code, content=content
+                    )
                 )
 
     @inlineCallbacks
@@ -476,7 +494,9 @@ class BoardEffectProvisioner(object):
         headers = http_options.setdefault("headers", {})
         headers["Authorization"] = [auth_token]
         method = method.lower()
-        log.debug("Making API call.  method: {method}, URL: {url}", method=method, url=url)
+        log.debug(
+            "Making API call.  method: {method}, URL: {url}", method=method, url=url
+        )
         response = yield getattr(http_client, method)(url, **http_options)
         log.debug("API call complete.  Response code: {code}", code=response.code)
         if response.code in (401, 419):
@@ -500,11 +520,14 @@ class BoardEffectProvisioner(object):
             content = yield response.content()
             raise Exception(
                 "Could not obtain auth token.  Response ({code}) was:\n{content}".format(
-                    code=resp_code,
-                    content=content))
+                    code=resp_code, content=content
+                )
+            )
 
     @inlineCallbacks
-    def make_paged_authenticated_api_call(self, method, url, allowed_responses=None, **http_options):
+    def make_paged_authenticated_api_call(
+        self, method, url, allowed_responses=None, **http_options
+    ):
         """
         Make an authenticated API call, collect the paged results, and return the
         entire result set.
@@ -526,29 +549,33 @@ class BoardEffectProvisioner(object):
             log.debug(
                 "page == {page}, last_page == {last_page}",
                 page=page,
-                last_page=last_page)
-            params['page'] = page
+                last_page=last_page,
+            )
+            params["page"] = page
             try:
-                resp = yield self.make_authenticated_api_call(method, url, **http_options)
+                resp = yield self.make_authenticated_api_call(
+                    method, url, **http_options
+                )
             except Exception as ex:
                 log.error("Error making paged API call.")
                 raise
             log.debug(
-                "Page {page} API call complete.  Response code was: {code}", 
+                "Page {page} API call complete.  Response code was: {code}",
                 page=page,
-                code=resp.code)
+                code=resp.code,
+            )
             resp_code = resp.code
             if resp_code not in allowed_responses:
                 raise Exception("Invalid response code: {0}".format(resp_code))
             try:
                 doc_part = yield resp.json()
-                data.extend(doc_part['data'])
-                last_page = int(doc_part['total_pages'])
+                data.extend(doc_part["data"])
+                last_page = int(doc_part["total_pages"])
             except Exception as ex:
                 log.error("Error attempting to parse response.")
                 raise
             log.debug("Received valid JSON response")
-        doc = {'data': data}
+        doc = {"data": data}
         returnValue(doc)
 
     @inlineCallbacks
@@ -558,25 +585,26 @@ class BoardEffectProvisioner(object):
         """
         log = self.log
         log.debug("Attempting to fetch all workroom IDs ...")
-        http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}{1}".format(prefix, self.workrooms_query)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
         log.debug("URL (GET): {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         try:
-            doc = yield self.make_paged_authenticated_api_call("GET", url, headers=headers)
+            doc = yield self.make_paged_authenticated_api_call(
+                "GET", url, headers=headers
+            )
         except Exception as ex:
             log.error("Error attempting to retrieve existing workrooms.")
             raise
         returnValue(doc)
-    
+
     @inlineCallbacks
     def fetch_workroom_id(self, workroom):
         """
-        Fetch an existing remote workroom ID and return it or None if the remote 
+        Fetch an existing remote workroom ID and return it or None if the remote
         account does not exist.
         """
         log = self.log
@@ -587,18 +615,20 @@ class BoardEffectProvisioner(object):
         log.debug("cache max size: {cache_size}", cache_size=cache_size)
         log.debug("cache current size: {cache_size}", cache_size=len(workroom_cache))
         workroom_data = None
-        if len(workroom_cache) == 0: 
+        if len(workroom_cache) == 0:
             # Prefill cache.
             log.debug("Prefilling workroom cache ...")
             doc = yield self.fetch_all_workrooms()
             workroom_data = doc["data"]
-            for entry in workroom_data: 
+            for entry in workroom_data:
                 if len(workroom_cache) >= cache_size:
                     break
                 name = entry["name"].lower()
                 identifier = entry["id"]
-                workroom_cache[name] = identifier 
-            log.debug("Cache size after prefill: {cache_size}", cache_size=len(workroom_cache))
+                workroom_cache[name] = identifier
+            log.debug(
+                "Cache size after prefill: {cache_size}", cache_size=len(workroom_cache)
+            )
         if workroom in workroom_cache:
             workroom_id = workroom_cache[workroom]
             returnValue(workroom_id)
@@ -613,14 +643,17 @@ class BoardEffectProvisioner(object):
                 workroom_id = entry["id"]
                 workroom_cache[workroom] = workroom_id
                 log.debug(
-                    "Added entry to workroom cache: {name}: {identifier}", 
-                    name=workroom, 
-                    identifier=workroom_id)
+                    "Added entry to workroom cache: {name}: {identifier}",
+                    name=workroom,
+                    identifier=workroom_id,
+                )
                 returnValue(workroom_id)
         returnValue(None)
-    
+
     @inlineCallbacks
-    def add_subject_to_workroom(self, workroom, subject, attributes, workroom_id=None, subject_id=None):
+    def add_subject_to_workroom(
+        self, workroom, subject, attributes, workroom_id=None, subject_id=None
+    ):
         """
         Add a subject to a workroom.
         """
@@ -630,38 +663,40 @@ class BoardEffectProvisioner(object):
             if workroom_id is None:
                 log.warn(
                     "Unable to find workroom ID for '{workroom}'.  Discarding ...",
-                    workroom=workroom)
+                    workroom=workroom,
+                )
                 returnValue(None)
         if subject_id is None:
             subject_id = yield self.fetch_account_id(subject, attributes)
             if subject_id is None:
-                yield delay(self.reactor, self.workroom_retry_delay) 
+                yield delay(self.reactor, self.workroom_retry_delay)
                 subject_id = yield self.fetch_account_id(subject, attributes)
                 if subject_id is None:
                     log.warn(
                         "Unable to find remote_id for subject '{subject}'.  Discarding ...",
-                        subject=subject)
+                        subject=subject,
+                    )
                     returnValue(None)
         prefix = self.url_prefix
         url = "{0}{1}".format(
             prefix,
             self.workroom_subject.render(
-                workroom_id=workroom_id,
-                subject_id=subject_id))
-        headers = {'Accept': ['application/json']}
+                workroom_id=workroom_id, subject_id=subject_id
+            ),
+        )
+        headers = {"Accept": ["application/json"]}
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         if not self.diagnostic_mode:
             try:
                 resp = yield self.make_authenticated_api_call(
-                    'PUT',  
-                    url, 
-                    headers=headers)
+                    "PUT", url, headers=headers
+                )
             except Exception as ex:
                 log.error(
                     "Error attempting to remove subject '{subject}' from workroom '{workroom}'.",
                     subject=subject,
-                    workroom=workroom
+                    workroom=workroom,
                 )
                 raise
             resp_code = resp.code
@@ -675,56 +710,63 @@ class BoardEffectProvisioner(object):
             except Exception as ex:
                 raise Exception(
                     "Unknown error prevented adding subject '{0}' to workroom '{1}'.".format(
-                    subject,
-                    workroom))
+                        subject, workroom
+                    )
+                )
             raise Exception(
                 "Error adding subject '{0}' to workroom '{1}': {2}".format(
-                subject,
-                workroom,
-                error))
+                    subject, workroom, error
+                )
+            )
 
     @inlineCallbacks
-    def remove_subject_from_workroom(self, workroom, subject, attributes, workroom_id=None, subject_id=None):
+    def remove_subject_from_workroom(
+        self, workroom, subject, attributes, workroom_id=None, subject_id=None
+    ):
         """
         Remove a subject from a workroom.
         """
         log = self.log
-        assert (subject is not None) or (subject_id is not None), "Must provide `subject` or `subject_id`!"
+        assert (subject is not None) or (
+            subject_id is not None
+        ), "Must provide `subject` or `subject_id`!"
         subject_identifier = subject or subject_id
         if workroom_id is None:
             workroom_id = yield self.fetch_workroom_id(workroom)
             if workroom_id is None:
                 log.warn(
                     "Unable to find workroom ID for '{workroom}'.  Discarding ...",
-                    workroom=workroom)
+                    workroom=workroom,
+                )
                 returnValue(None)
         if subject_id is None:
             subject_id = yield self.fetch_account_id(subject, attributes)
             if subject_id is None:
                 log.warn(
                     "Unable to find remote_id for subject '{subject}'.  Discarding ...",
-                    subject=subject)
+                    subject=subject,
+                )
                 returnValue(None)
         prefix = self.url_prefix
         url = "{0}{1}".format(
             prefix,
             self.workroom_subject.render(
-                workroom_id=workroom_id,
-                subject_id=subject_id))
-        headers = {'Accept': ['application/json']}
+                workroom_id=workroom_id, subject_id=subject_id
+            ),
+        )
+        headers = {"Accept": ["application/json"]}
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         if not self.diagnostic_mode:
             try:
                 resp = yield self.make_authenticated_api_call(
-                    'DELETE',  
-                    url, 
-                    headers=headers)
+                    "DELETE", url, headers=headers
+                )
             except Exception as ex:
                 log.error(
                     "Error attempting to remove subject identified by '{identifier}' from workroom '{workroom}'.",
                     identifier=subject_identifier,
-                    workroom=workroom
+                    workroom=workroom,
                 )
                 raise
             resp_code = resp.code
@@ -738,13 +780,14 @@ class BoardEffectProvisioner(object):
             except Exception as ex:
                 raise Exception(
                     "Unknown error prevented removing subject identified by '{0}' from workroom '{1}'.".format(
-                    subject_identifier,
-                    workroom))
+                        subject_identifier, workroom
+                    )
+                )
             raise Exception(
                 "Error removing subject identified by '{0}' from workroom '{1}': {2}".format(
-                subject_identifier,
-                workroom,
-                error))
+                    subject_identifier, workroom, error
+                )
+            )
 
     @inlineCallbacks
     def sync_subjects_to_workroom(self, workroom, subjects, attributes):
@@ -756,7 +799,8 @@ class BoardEffectProvisioner(object):
         if workroom_id is None:
             log.warn(
                 "Unable to find workroom ID for '{workroom}'.  Discarding ...",
-                workroom=workroom)
+                workroom=workroom,
+            )
             returnValue(None)
         subject_ids = []
         for subject in subjects:
@@ -768,13 +812,15 @@ class BoardEffectProvisioner(object):
                 log.warn(
                     "Could not find remote ID for subject '{subject}'."
                     "  Ignoring for sync to workroom.",
-                    subject=subject)
+                    subject=subject,
+                )
                 continue
             subject_ids.append((subject, subject_id))
         log.debug(
             "Adding {count} subjects to workroom '{workroom}' ...",
             count=len(subject_ids),
-            workroom=workroom)
+            workroom=workroom,
+        )
         for subject, subject_id in subject_ids:
             subj_attribs = None
             if attributes is not None:
@@ -784,20 +830,23 @@ class BoardEffectProvisioner(object):
                 subject,
                 subj_attribs,
                 workroom_id=workroom_id,
-                subject_id=subject_id)
+                subject_id=subject_id,
+            )
         subject_id_set = set(identifier for junk, identifier in subject_ids)
         actual_subject_ids = yield self.get_subjects_for_workroom(workroom_id)
         for remote_id in actual_subject_ids:
             if not remote_id in subject_id_set:
                 log.debug(
                     "Looking up subject for remote_id '{remote_id}' ...",
-                    remote_id=remote_id)
+                    remote_id=remote_id,
+                )
                 yield self.remove_subject_from_workroom(
                     workroom,
                     subject=None,
                     attributes=None,
                     workroom_id=workroom_id,
-                    subject_id=remote_id)
+                    subject_id=remote_id,
+                )
 
     @inlineCallbacks
     def get_subjects_for_workroom(self, workroom_id):
@@ -809,10 +858,10 @@ class BoardEffectProvisioner(object):
         http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}{1}".format(
-            prefix, 
-            self.workroom_members.render(workroom_id=workroom_id))
+            prefix, self.workroom_members.render(workroom_id=workroom_id)
+        )
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
         log.debug("URL (GET): {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
@@ -849,17 +898,15 @@ class BoardEffectProvisioner(object):
         prefix = self.url_prefix
         url = "{0}{1}".format(prefix, self.accounts_query)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
         log.debug("URL (GET): {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
-        params={'include_inactive': 'true'}
+        params = {"include_inactive": "true"}
         try:
             doc = yield self.make_paged_authenticated_api_call(
-                "GET",
-                url,
-                headers=headers,
-                params=params)    
+                "GET", url, headers=headers, params=params
+            )
         except Exception as ex:
             log.error("Error fetching all users.")
             raise
@@ -868,14 +915,14 @@ class BoardEffectProvisioner(object):
     @inlineCallbacks
     def fetch_account_id(self, subject, attributes):
         """
-        Fetch an existing remote account ID and return it or None if the remote 
+        Fetch an existing remote account ID and return it or None if the remote
         account does not exist.
         """
         log = self.log
         log.debug("Attempting to fetch existing account.")
         local_computed_match = self.local_computed_match_template.render(
-            subject=subject,
-            attributes=attributes)
+            subject=subject, attributes=attributes
+        )
         account_cache = self.__account_cache
         cache_size = self.cache_size
         log.debug("cache max size: {cache_size}", cache_size=cache_size)
@@ -888,29 +935,22 @@ class BoardEffectProvisioner(object):
         http_client = self.http_client
         prefix = self.url_prefix
         accounts_query = self.accounts_query
-        url = "{0}{1}".format(
-            prefix, 
-            self.accounts_query)
+        url = "{0}{1}".format(prefix, self.accounts_query)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
         log.debug("URL (GET): {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
-        params={
-            'include_inactive': 'true',
-            'login': local_computed_match}
+        params = {"include_inactive": "true", "login": local_computed_match}
         try:
             doc = yield self.make_paged_authenticated_api_call(
-                "GET",
-                url,
-                headers=headers,
-                params=params)    
+                "GET", url, headers=headers, params=params
+            )
         except Exception as ex:
             log.error("Error fetching remote subject '{subject}'.", subject=subject)
             raise
         if not "data" in doc:
-            raise Exception(
-                "Unable to parse response: {0}".format(data))
+            raise Exception("Unable to parse response: {0}".format(data))
         account_data = doc["data"]
         for entry in account_data:
             log.debug("Looping through entries ...")
@@ -918,7 +958,11 @@ class BoardEffectProvisioner(object):
             if match_value == local_computed_match:
                 remote_id = get_api_id_from_remote_account(entry)
                 account_cache[subject] = remote_id
-                log.debug("Added entry to cache: {match_value}: {identifier}", match_value=match_value, identifier=remote_id)
+                log.debug(
+                    "Added entry to cache: {match_value}: {identifier}",
+                    match_value=match_value,
+                    identifier=remote_id,
+                )
                 returnValue(remote_id)
         returnValue(None)
 
@@ -931,26 +975,24 @@ class BoardEffectProvisioner(object):
         log.debug("Entered update_subject().")
         log.debug("Updating subject '{subject}'", subject=subject)
         props = self.map_attributes(attributes, subject, constants.ACTION_UPDATE)
-        props['active'] = '1'
-        props['preferred_contact_address'] = 'Company'
+        props["active"] = "1"
+        props["preferred_contact_address"] = "Company"
         prefix = self.url_prefix
         url = "{0}{1}".format(
             prefix,
             self.account_update.render(
-                remote_id=remote_id,
-                subject=subject,
-                attributes=props))
-        headers = {'Accept': ['application/json']}
+                remote_id=remote_id, subject=subject, attributes=props
+            ),
+        )
+        headers = {"Accept": ["application/json"]}
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("data: {props}", props=props)
         if not self.diagnostic_mode:
             try:
                 resp = yield self.make_authenticated_api_call(
-                    'PUT',  
-                    url, 
-                    data=props, 
-                    headers=headers)
+                    "PUT", url, data=props, headers=headers
+                )
             except Exception as ex:
                 log.error("Error attempting to update existing account.")
                 raise
@@ -967,29 +1009,24 @@ class BoardEffectProvisioner(object):
         log.debug("Entered add_subject().")
         log.debug("Adding a new account ...")
         props = self.map_attributes(attributes, subject, constants.ACTION_ADD)
-        props['active'] = '1'
-        props['preferred_contact_address'] = 'Company'
-        account_doc = self.account_template.render(
-            props=props,
-            subject=subject)
+        props["active"] = "1"
+        props["preferred_contact_address"] = "Company"
+        account_doc = self.account_template.render(props=props, subject=subject)
         log.debug("Account doc: {doc}", doc=account_doc)
         prefix = self.url_prefix
-        url = "{0}{1}".format(
-            prefix,
-            self.account_add)
-        headers = {
-            'Accept': ['application/json'], 
-            'Content-Type': ['application/json']}
+        url = "{0}{1}".format(prefix, self.account_add)
+        headers = {"Accept": ["application/json"], "Content-Type": ["application/json"]}
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("data: {account_doc}", account_doc=account_doc)
         if not self.diagnostic_mode:
             try:
                 resp = yield self.make_authenticated_api_call(
-                    'POST',
-                    url, 
-                    data=StringProducer(account_doc.encode('utf-8')), 
-                    headers=headers) 
+                    "POST",
+                    url,
+                    data=StringProducer(account_doc.encode("utf-8")),
+                    headers=headers,
+                )
             except Exception as ex:
                 log.error("Error attempting to add new account.")
                 raise
@@ -1007,39 +1044,38 @@ class BoardEffectProvisioner(object):
         """
         log = self.log
         log.debug("Entered deprovision_subject().")
-        assert (subject is not None) or (remote_id is not None), (
-            "Must provide `subject` or `remote_id`!")
+        assert (subject is not None) or (
+            remote_id is not None
+        ), "Must provide `subject` or `remote_id`!"
         subject_identifier = subject or remote_id
         log.debug(
             "Attempting to deprovision subject identified by '{identifier}'.",
-            identifier=subject_identifier)
+            identifier=subject_identifier,
+        )
         if remote_id is None:
             subject = subject.lower()
             remote_id = yield self.fetch_account_id(subject, attributes)
         if remote_id is None:
-            log.debug("Account '{subject}' does not exist on the remote service.",
-                subject=subject)
+            log.debug(
+                "Account '{subject}' does not exist on the remote service.",
+                subject=subject,
+            )
             returnValue(None)
         prefix = self.url_prefix
-        url = "{0}{1}".format(
-            prefix,
-            self.account_delete.render(remote_id=remote_id))
-        headers = {
-            'Accept': ['application/json']}
+        url = "{0}{1}".format(prefix, self.account_delete.render(remote_id=remote_id))
+        headers = {"Accept": ["application/json"]}
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
-        data = {'active': '0'}
+        data = {"active": "0"}
         if not self.diagnostic_mode:
             try:
                 resp = yield self.make_authenticated_api_call(
-                    'PUT',
-                    url, 
-                    headers=headers,
-                    data=data)
+                    "PUT", url, headers=headers, data=data
+                )
             except Exception as ex:
                 log.error(
                     "Error attempting to delete existing account.  subject identified by: {identifier}",
-                    identifier=subject_identifier
+                    identifier=subject_identifier,
                 )
                 raise
             resp_code = resp.code
@@ -1049,7 +1085,8 @@ class BoardEffectProvisioner(object):
                 log.error(
                     "API error attempting to delete subject identified by '{subject}':\n{content}",
                     subject=subject_identifier,
-                    content=content)
+                    content=content,
+                )
                 raise Exception("API error attempting to delete remote subject.")
             account_cache = self.__account_cache
             if not subject is None:
@@ -1067,9 +1104,8 @@ class BoardEffectProvisioner(object):
         if pool is None:
             pool = HTTPConnectionPool(self.reactor)
         agent = Agent.usingEndpointFactory(
-            self.reactor,
-            WebClientEndpointFactory(self.reactor, endpoint_s),
-            pool=pool)
+            self.reactor, WebClientEndpointFactory(self.reactor, endpoint_s), pool=pool
+        )
         return (pool, agent)
 
     def make_web_client(self, endpoint_s, pool=None):
@@ -1083,10 +1119,10 @@ class BoardEffectProvisioner(object):
         self.agent = agent
         self.http_client = http_client
 
+
 @inlineCallbacks
 def delay(reactor, seconds):
     """
     A Deferred that fires after `seconds` seconds.
     """
-    yield task.deferLater(reactor, seconds, lambda : None)
-
+    yield task.deferLater(reactor, seconds, lambda: None)
