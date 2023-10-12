@@ -1,37 +1,37 @@
-
 from __future__ import print_function
-from collections import Mapping, namedtuple
-import contextlib
+
 import datetime
-import exceptions
 import itertools
-from json import load, loads
-import os
-import os.path
-from textwrap import dedent
-import traceback
-from config import load_config, section2dict
 import sqlite3
 import sys
-import urlparse
+import traceback
+from collections import Mapping
+from json import load, loads
+from textwrap import dedent
+
 import attr
+import exceptions
+import urlparse
+from config import load_config, section2dict
 from jinja2 import Template
 from ldap_utils import escape_filter_chars, normalize_dn
-from ldaptor.protocols import pureldap
-from ldaptor.protocols.ldap import ldapclient, ldapsyntax
-from ldaptor.protocols.ldap.distinguishedname import DistinguishedName, RelativeDistinguishedName
-from ldaptor.protocols.ldap.distinguishedname import unescape as unescapeDN
-from ldaptor.protocols.ldap import ldaperrors
-from twisted.plugin import IPlugin
-from zope.interface import implements
+from ldaptor import delta
+from ldaptor.protocols.ldap import ldapclient, ldaperrors, ldapsyntax
+from ldaptor.protocols.ldap.distinguishedname import (
+    DistinguishedName, RelativeDistinguishedName)
 from twisted.enterprise import adbapi
+from twisted.internet import endpoints, task
 from twisted.internet.defer import gatherResults, inlineCallbacks, returnValue
-from twisted.internet import endpoints
-from twisted.internet import task
 from twisted.internet.task import LoopingCall
 from twisted.logger import Logger
-from txamqpprovisioner.interface import IProvisionerFactory, IProvisioner
+from twisted.plugin import IPlugin
+from zope.interface import implements
+
 from txamqpprovisioner import constants
+from txamqpprovisioner.interface import IProvisioner, IProvisionerFactory
+
+if sys.version_info.major == 3:
+    basestring = str
 
 
 @attr.attrs
@@ -55,9 +55,11 @@ class LDAPClientManager(object):
     using an existing client and don't want to inject a bunch of conditional
     logic into your code.
     """
+
     active = False
     client_ = None
     log = None
+
     def __init__(self, client, active=True, log=log):
         self.client_ = client
         self.active = active
@@ -65,7 +67,10 @@ class LDAPClientManager(object):
 
     def __enter__(self):
         if self.log:
-            self.log.debug("Entering context manager.  Returning client: {client}", client=self.client_)
+            self.log.debug(
+                "Entering context manager.  Returning client: {client}",
+                client=self.client_,
+            )
         return self.client_
 
     def __exit__(self, ex_type, ex_value, tb):
@@ -73,7 +78,7 @@ class LDAPClientManager(object):
             if self.log:
                 self.log.debug("Exiting contect manager.  Issuing unbind.")
             self.client_.unbind()
-        return (ex_type is None)
+        return ex_type is None
 
 
 class LDAPProvisionerFactory(object):
@@ -97,8 +102,8 @@ class LDAPProvisioner(object):
     log = None
     config = None
     batch_time = 10
-    subject_id_attribute = 'uid'
-    group_attrib_type = 'cn'
+    subject_id_attribute = "uid"
+    group_attrib_type = "cn"
     subject_chunk_size = 500
     commit_batch_size = 50
     provision_user = 0
@@ -118,55 +123,68 @@ class LDAPProvisioner(object):
         scp = load_config(config_file, defaults=self.getConfigDefaults())
         config = section2dict(scp, "PROVISIONER")
         self.config = config
-        log_level = config.get('log_level', default_log_level)
+        log_level = config.get("log_level", default_log_level)
         log = Logger(observer=logObserverFactory(log_level))
         self.log = log
-        log.debug("Initialized logging for LDAP provisioner.", 
-            event_type='init_provisioner_logging')
-        self.load_group_map(config['group_map'])
-        log.debug("Loaded group map for LDAP provisioner.", 
-            event_type='loaded_provisioner_group_map')
-        base_dn = config.get('base_dn', None)
-        account_base_dn = config.get('account_base_dn', None)
-        group_base_dn = config.get('group_base_dn', None)
+        log.debug(
+            "Initialized logging for LDAP provisioner.",
+            event_type="init_provisioner_logging",
+        )
+        self.load_group_map(config["group_map"])
+        log.debug(
+            "Loaded group map for LDAP provisioner.",
+            event_type="loaded_provisioner_group_map",
+        )
+        base_dn = config.get("base_dn", None)
+        account_base_dn = config.get("account_base_dn", None)
+        group_base_dn = config.get("group_base_dn", None)
         if base_dn is None and account_base_dn is None:
-            log.error("Must provide option PROVISIONER:base_dn OR PROVISIONER:account_base_dn.", 
-                event_type='provisioner_config_error')
+            log.error(
+                "Must provide option PROVISIONER:base_dn OR PROVISIONER:account_base_dn.",
+                event_type="provisioner_config_error",
+            )
             sys.exit(1)
         if base_dn is None and group_base_dn is None:
-            log.error("Must provide option PROVISIONER:base_dn OR PROVISIONER:group_base_dn.", 
-                event_type='provisioner_config_error')
+            log.error(
+                "Must provide option PROVISIONER:base_dn OR PROVISIONER:group_base_dn.",
+                event_type="provisioner_config_error",
+            )
             sys.exit(1)
         self.base_dn = base_dn
         self.account_base_dn = account_base_dn
         self.group_base_dn = group_base_dn
         self.subject_id_attribute = config.get("subject_id_attribute", "uid")
         self.group_attrib_type = config.get("group_attrib_type", "cn")
-        self.group_attribute = config['group_attribute']
-        self.user_attribute = config['user_attribute']
+        self.group_attribute = config["group_attribute"]
+        self.user_attribute = config["user_attribute"]
         self.gid_pool_dn = config.get("gid_pool_dn", None)
         if self.gid_pool_dn is not None:
             self.process_posix = True
-        ldap_url = config['url']
+        ldap_url = config["url"]
         p = urlparse.urlparse(ldap_url)
         netloc = p.netloc
-        host_port = netloc.split(':', 1)
+        host_port = netloc.split(":", 1)
         self.ldap_host = host_port[0]
         if len(host_port) > 1:
             self.ldap_port = int(host_port[1])
         else:
             self.ldap_port = 389
-        self.start_tls = bool(int(config.get('start_tls', 0)))
-        provision_user = bool(int(config.get('provision_user', 0)))
-        provision_group = bool(int(config.get('provision_group', 0)))
+        self.start_tls = bool(int(config.get("start_tls", 0)))
+        provision_user = bool(int(config.get("provision_user", 0)))
+        provision_group = bool(int(config.get("provision_group", 0)))
         if (not provision_user) and (not provision_group):
-            log.error("Must enable at least one of 'PROVISIONER.provision_user' or `PROVISIONER.provision_group`.")
-            sys.exit(1) 
+            log.error(
+                "Must enable at least one of 'PROVISIONER.provision_user' "
+                "or `PROVISIONER.provision_group`."
+            )
+            sys.exit(1)
         self.provision_user = provision_user
         self.provision_group = provision_group
         try:
-            self.subject_chunk_size = int(config.get('subject_chunk_size', self.subject_chunk_size))
-        except ValueError as ex:
+            self.subject_chunk_size = int(
+                config.get("subject_chunk_size", self.subject_chunk_size)
+            )
+        except ValueError:
             log.error("Provisioner `subject_chunk_size` must be a positive integer.")
             sys.exit(1)
         if self.subject_chunk_size < 1:
@@ -175,34 +193,34 @@ class LDAPProvisioner(object):
         log.debug(
             "Provisioner LDAP settings: host={ldap_host}, port={ldap_port}, "
             "start_tls={start_tls}, base_dn={base_dn}, "
-            "group_attrib={group_attrib} user_attrib={user_attrib}", 
+            "group_attrib={group_attrib} user_attrib={user_attrib}",
             ldap_host=self.ldap_host,
             ldap_port=self.ldap_port,
             start_tls=self.start_tls,
             base_dn=base_dn,
             group_attrib=self.group_attribute,
-            user_attrib=self.user_attribute)
-        self.batch_time = int(config['batch_interval'])
-        db_str = config['sqlite_db']
+            user_attrib=self.user_attribute,
+        )
+        self.batch_time = int(config["batch_interval"])
+        db_str = config["sqlite_db"]
         self.dbpool = adbapi.ConnectionPool("sqlite3", db_str, check_same_thread=False)
-        log.debug("Initializing database ...",
-            event_type='before_init_db')
+        log.debug("Initializing database ...", event_type="before_init_db")
         try:
             yield self.dbpool.runInteraction(self.init_db)
         except Exception as ex:
-            log.error("Error initializing database: {error}",
-                event_type='db_error',
-                error=ex)
+            log.error(
+                "Error initializing database: {error}", event_type="db_error", error=ex
+            )
         else:
-            log.debug("Database initialized ...",
-                event_type='after_init_db')
+            log.debug("Database initialized ...", event_type="after_init_db")
         processor = LoopingCall(self.process_requests)
         processor.start(self.batch_time)
         self.processor = processor
         self.provisioner_state = self.IDLE
 
     def getConfigDefaults(self):
-        return dedent("""\
+        return dedent(
+            """\
         [PROVISIONER]
         sqlite_db = groups.db
         group_map = groupmap.json
@@ -215,7 +233,8 @@ class LDAPProvisioner(object):
         group_value_type = dn
         user_value_type = dn
         batch_interval = 30
-        """)
+        """
+        )
 
     @inlineCallbacks
     def runDBCommand(self, cmd, params=None, is_query=True):
@@ -231,17 +250,12 @@ class LDAPProvisioner(object):
             else:
                 results = yield dbpool.runOperation(*args)
         except Exception as ex:
-            params_str = ''
-            msg_parts = ['DB error: cmd={cmd}']
+            msg_parts = ["DB error: cmd={cmd}"]
             if params is not None:
-                msg_parts.append('params={params!r}')
-            msg_parts.append('error={error}')
-            msg = ', '.join(msg_parts)
-            log.error(
-                msg,
-                error=str(ex),
-                cmd=cmd_str,
-                params=params)
+                msg_parts.append("params={params!r}")
+            msg_parts.append("error={error}")
+            msg = ", ".join(msg_parts)
+            log.error(msg, error=str(ex), cmd=cmd_str, params=params)
             raise
         msg_parts = ["Ran DB command: "]
         result_count = None
@@ -249,33 +263,39 @@ class LDAPProvisioner(object):
             msg_parts.append("result_count={result_count}, ")
             result_count = len(results)
         msg_parts.append("cmd={cmd}")
-        msg = ''.join(msg_parts)
-        log.debug(msg, cmd=cmd_str, result_count=result_count) 
+        msg = "".join(msg_parts)
+        log.debug(msg, cmd=cmd_str, result_count=result_count)
         returnValue(results)
 
     def init_db(self, txn):
         commands = []
-        sql = dedent("""\
+        sql = dedent(
+            """\
             CREATE TABLE intake(
                 grp TEXT NOT NULL,
                 member TEXT NOT NULL,
                 op TEXT NOT NULL
             );
-            """)
+            """
+        )
         commands.append(sql)
-        sql = dedent("""\
+        sql = dedent(
+            """\
             CREATE TABLE groups(
                 grp TEXT NOT NULL
             );
-            """)
+            """
+        )
         commands.append(sql)
-        sql = dedent("""\
+        sql = dedent(
+            """\
             CREATE TABLE member_ops(
                 member TEXT NOT NULL,
                 op TEXT NOT NULL,
                 grp INTEGER NOT NULL
             );
-            """)
+            """
+        )
         commands.append(sql)
         sql = """CREATE UNIQUE INDEX ix0 ON groups (grp);"""
         commands.append(sql)
@@ -311,28 +331,31 @@ class LDAPProvisioner(object):
             else:
                 log.warn(
                     "Unknown action '{action}'.  Discarding.  Message was:\n{msg}",
-                    msg=serialized)
+                    msg=serialized,
+                )
                 returnValue(None)
-        except KeyError as ex:
-            log.warn("Invalid message received.  Discarding.  Message was {msg}.", 
+        except KeyError:
+            log.warn(
+                "Invalid message received.  Discarding.  Message was {msg}.",
                 event_type="invalid_message_error",
-                msg=serialized)
+                msg=serialized,
+            )
             returnValue(None)
         if action == constants.ACTION_MEMBERSHIP_SYNC:
-            yield self.perform_membership_sync(group, subjects) 
+            yield self.perform_membership_sync(group, subjects)
         elif action in add_delete_actions:
-            db_str = self.config['sqlite_db']
             try:
                 yield self.add_action_to_intake(group, action, subject)
-            except Exception as ex:
+            except Exception:
                 log.failure("Error adding provision request to intake.")
                 raise
             log.debug(
                 "Recorded provision request.",
-                event_type='provision_request_scheduled',
+                event_type="provision_request_scheduled",
                 group=group,
                 subject=subject,
-                action=action)
+                action=action,
+            )
 
     @inlineCallbacks
     def perform_membership_sync(self, group, subjects):
@@ -344,28 +367,27 @@ class LDAPProvisioner(object):
             yield delay(self.reactor, delay_time)
         self.provisioner_state = self.MEMBERSHIP_SYNC
         try:
-            log.debug("Performing membership sync for group '{group}'.", 
-                group=group)
-            log.debug("{count} subjects provided for sync.",
-                count=len(subjects))
+            log.debug("Performing membership sync for group '{group}'.", group=group)
+            log.debug("{count} subjects provided for sync.", count=len(subjects))
             target = self.group_to_ldap_group(group)
             if target is None:
-                log.warn(
-                    "No group mapping for '{group}'.  Discarding ...",
-                    group=group)
+                log.warn("No group mapping for '{group}'.  Discarding ...", group=group)
                 returnValue(None)
             client = yield self.get_ldap_client()
             try:
                 if target.target_type == "group":
                     log.debug("Applying changes to the LDAP group ...")
-                    group_dn, group_type, members = yield self.apply_changes_to_ldap_group(
-                        target=target, adds=subjects, deletes=None, client=client)
+                    (
+                        group_dn,
+                        group_type,
+                        members,
+                    ) = yield self.apply_changes_to_ldap_group(
+                        target=target, adds=subjects, deletes=None, client=client
+                    )
                     log.debug("Applying changes to LDAP members ...")
                     yield self.sync_members_to_ldap_group(
-                        client, 
-                        str(group_dn), 
-                        members,
-                        group_type=group_type)
+                        client, str(group_dn), members, group_type=group_type
+                    )
                 elif target.target_type == "attribute":
                     if self.provision_user:
                         yield self.sync_attribute(target, subjects, client)
@@ -394,15 +416,13 @@ class LDAPProvisioner(object):
         multi_valued = target.multi_valued
         for subject in subjects:
             yield self.apply_changes_to_ldap_subj(
-                subject, 
-                set([]),
-                set([]),
-                [target],
-                [], 
-                client)
-            log.debug("Provisioned attribute `{attrib_name}` for subject `{subject_id}`.",
+                subject, set([]), set([]), [target], [], client
+            )
+            log.debug(
+                "Provisioned attribute `{attrib_name}` for subject `{subject_id}`.",
                 attrib_name=attrib_name,
-                subject_id=subject)
+                subject_id=subject,
+            )
         base_dn = self.account_base_dn
         if base_dn is None:
             base_dn = self.base_dn
@@ -412,11 +432,12 @@ class LDAPProvisioner(object):
         o = ldapsyntax.LDAPEntry(client, base_dn)
         try:
             results = yield o.search(filterText=fltr, attributes=attribs)
-        except Exception as ex:
+        except Exception:
             self.log.error(
-                "Error while searching for LDAP subjects with attribute {attrib_name}", 
-                event_type='error_load_ldap_subjects',
-                attrib_name=attrib_name) 
+                "Error while searching for LDAP subjects with attribute {attrib_name}",
+                event_type="error_load_ldap_subjects",
+                attrib_name=attrib_name,
+            )
             raise
         subject_set = set(s.lower() for s in subjects)
         for subject_entry in results:
@@ -436,11 +457,14 @@ class LDAPProvisioner(object):
                         subject_entry[attrib_name] = values
                 else:
                     del subject_entry[attrib_name]
-                yield subject_entry.commit()    
-                log.debug("Removed an attribute:value of `{attrib_name}`:`{attrib_value}` from subject `{subject_id}`.",
+                yield subject_entry.commit()
+                log.debug(
+                    "Removed an attribute:value of `{attrib_name}`:"
+                    "`{attrib_value}` from subject `{subject_id}`.",
                     attrib_name=attrib_name,
                     attrib_value=attrib_value,
-                    subject_id=subject)
+                    subject_id=subject,
+                )
 
     @inlineCallbacks
     def alter_ldap_membership(self, client, entry_dn, group_dn, delete=True):
@@ -469,13 +493,14 @@ class LDAPProvisioner(object):
             "'{entry_dn}' group count went from {old_count} => {new_count}",
             entry_dn=entry_dn,
             old_count=orig_group_size,
-            new_count=new_group_size)
+            new_count=new_group_size,
+        )
         try:
             yield entry.commit()
-        except Exception as ex:
+        except Exception:
             log.failure(
-                "Error altering LDAP membership for entry {entry_dn}",
-                entry_dn=entry_dn)
+                "Error altering LDAP membership for entry {entry_dn}", entry_dn=entry_dn
+            )
             raise
         returnValue(True)
 
@@ -485,13 +510,15 @@ class LDAPProvisioner(object):
         Return a list of the entry indicies for which the results indicate
         a failure.
         """
-        failures = [entry_indices[n]
-            for n, result in enumerate(result_list)
-                if not result]
+        failures = [
+            entry_indices[n] for n, result in enumerate(result_list) if not result
+        ]
         return failures
 
     @inlineCallbacks
-    def sync_members_to_ldap_group(self, client, group_dn, ldap_members, group_type='groupOfNames'):
+    def sync_members_to_ldap_group(
+        self, client, group_dn, ldap_members, group_type="groupOfNames"
+    ):
         """
         Retrieve all LDAP entries with a subject membership entry for
         `group_dn`.  Remove the entry for those members that don't
@@ -510,64 +537,74 @@ class LDAPProvisioner(object):
         if not provision_user:
             returnValue(None)
         user_attribute = self.user_attribute
-        subject_chunk_size = self.subject_chunk_size
         commit_batch_size = self.commit_batch_size
         base_dn = self.account_base_dn
         if base_dn is None:
             base_dn = self.base_dn
-        log.debug("base_dn='{base_dn}', commit_batch_size={commit_batch_size}",
+        log.debug(
+            "base_dn='{base_dn}', commit_batch_size={commit_batch_size}",
             base_dn=base_dn,
-            commit_batch_size=commit_batch_size)
+            commit_batch_size=commit_batch_size,
+        )
         # Fetch all entries that are members of the group DN.
         template_string = "({0}={1})".format(user_attribute, "{0}")
         fltr = template_string.format(escape_filter_chars(group_dn))
         o = ldapsyntax.LDAPEntry(client, base_dn)
-        log.debug("Searching LDAP with base='{ldap_base}', filter='{ldap_filter}'",
+        log.debug(
+            "Searching LDAP with base='{ldap_base}', filter='{ldap_filter}'",
             ldap_base=base_dn,
             ldap_filter=fltr,
-            ldap_attributes=None)
+            ldap_attributes=None,
+        )
         subject_attributes = None
-        if group_type == 'posixGroup':
+        if group_type == "posixGroup":
             subject_attributes = [self.subject_id_attribute]
         try:
-            results = yield o.search(filterText=fltr, attributes=subject_attributes) 
-        except Exception as ex:
+            results = yield o.search(filterText=fltr, attributes=subject_attributes)
+        except Exception:
             log.error(
                 "Error while searching for LDAP entries with {user_attribute}={group_dn}",
                 user_attribute=user_attribute,
-                group_dn=group_dn) 
+                group_dn=group_dn,
+            )
             raise
-        log.debug("{result_count} LDAP account entries have been retrieved.",
-            result_count=len(results))
+        log.debug(
+            "{result_count} LDAP account entries have been retrieved.",
+            result_count=len(results),
+        )
         # Remove the group from entries that aren't on the subject list.
         # If an entry is on the list, keep track of it so we don't need to
         # update it later.
         log.debug("Removing group DN from entries that are not in the subject list ...")
-        if group_type == 'posixGroup':
+        if group_type == "posixGroup":
             test_memb_func = test_entry_in_uid_set
-        elif group_type == 'groupOfNames':
+        elif group_type == "groupOfNames":
             test_memb_func = test_entry_in_dn_set
         else:
             raise Exception("Unknown group type '{0}'.".format(group_type))
         batch = []
         entry_indices = []
         processed = set([])
-        for n, entry in enumerate(results): 
+        for n, entry in enumerate(results):
             entry_dn = str(entry.dn).lower()
-            log.debug("Processing entry number {n}, '{entry_dn}'.", n=n, entry_dn=entry_dn)
+            log.debug(
+                "Processing entry number {n}, '{entry_dn}'.", n=n, entry_dn=entry_dn
+            )
             if not test_memb_func(entry, ldap_members):
-                log.debug("Scheduling entry to have group DN removed ...") 
+                log.debug("Scheduling entry to have group DN removed ...")
                 batch.append(
-                    self.alter_ldap_membership(
-                        client, entry_dn, group_dn, delete=True))
+                    self.alter_ldap_membership(client, entry_dn, group_dn, delete=True)
+                )
                 entry_indices.append(n)
                 if len(batch) >= commit_batch_size:
                     log.debug("Committing scheduled batch ...")
                     commits = yield gatherResults(batch, consumeErrors=True)
                     failed = self.check_results(commits, entry_indices)
                     if len(failed) > 0:
-                        log.error("Batch update failed for the following entries: {failed}",
-                            failed=failed)
+                        log.error(
+                            "Batch update failed for the following entries: {failed}",
+                            failed=failed,
+                        )
                     log.debug("Committed batch.")
                     batch = []
                     entry_indices = []
@@ -579,47 +616,54 @@ class LDAPProvisioner(object):
             commits = yield gatherResults(batch, consumeErrors=False)
             failed = self.check_results(commits, entry_indices)
             if len(failed) > 0:
-                log.error("Batch update failed for the following entries: {failed}",
-                    failed=failed)
+                log.error(
+                    "Batch update failed for the following entries: {failed}",
+                    failed=failed,
+                )
             log.debug("Committed batch.")
         # Finally, update all the subject entries that ought to be one the list
         # but weren't.
         log.debug(
             "Count of already processed subjects => {processed_count}",
-            processed_count=len(processed))
-        if group_type == 'groupOfNames':
+            processed_count=len(processed),
+        )
+        if group_type == "groupOfNames":
             ldap_member_dns = set(ldap_members) - processed
         else:
             ldap_member_dns = yield self.xform_subjects_to_members(ldap_members, client)
-        log.debug(
-            "Count of members to process => {count}",
-            count=len(ldap_member_dns))
+        log.debug("Count of members to process => {count}", count=len(ldap_member_dns))
         log.debug("Adding group to members that are missing it ...")
         batch = []
         entry_indices = []
         for n, entry_dn in enumerate(ldap_member_dns):
-            log.debug("Processing entry number {n}, '{entry_dn}'.", n=n, entry_dn=entry_dn)
+            log.debug(
+                "Processing entry number {n}, '{entry_dn}'.", n=n, entry_dn=entry_dn
+            )
             o = ldapsyntax.LDAPEntry(client, entry_dn)
-            log.debug("Scheduling entry to have group DN added ...") 
+            log.debug("Scheduling entry to have group DN added ...")
             batch.append(
-                self.alter_ldap_membership(
-                    client, entry_dn, group_dn, delete=False))
+                self.alter_ldap_membership(client, entry_dn, group_dn, delete=False)
+            )
             entry_indices.append(n)
             if len(batch) >= commit_batch_size:
                 log.debug("Committing scheduled batch ...")
-                commits = yield gatherResults(batch, consumeErrors=False)            
+                commits = yield gatherResults(batch, consumeErrors=False)
                 failed = self.check_results(commits, entry_indices)
                 if len(failed) > 0:
-                    log.error("Batch update failed for the following entries: {failed}",
-                        failed=failed)
+                    log.error(
+                        "Batch update failed for the following entries: {failed}",
+                        failed=failed,
+                    )
                 batch = []
         if len(batch) > 0:
             log.debug("Committing scheduled batch ...")
-            commits = yield gatherResults(batch)            
+            commits = yield gatherResults(batch)
             failed = self.check_results(commits, entry_indices)
             if len(failed) > 0:
-                log.error("Batch update failed for the following entries: {failed}",
-                    failed=failed)
+                log.error(
+                    "Batch update failed for the following entries: {failed}",
+                    failed=failed,
+                )
         log.debug("LDAP sync complete.")
 
     @inlineCallbacks
@@ -632,12 +676,14 @@ class LDAPProvisioner(object):
             returnValue(None)
         self.provisioner_state = self.PROCESSING_REQUESTS
         try:
-            log.debug("LDAP provisioner processing queued requests ...",    
-                event_type='provisioner_begin_process_requests')
+            log.debug(
+                "LDAP provisioner processing queued requests ...",
+                event_type="provisioner_begin_process_requests",
+            )
             service_state = self.service_state
             try:
                 yield self.provision_ldap()
-            except Exception as ex:
+            except Exception:
                 log.failure("Error while processing provisioning request(s)")
             else:
                 service_state.last_update = datetime.datetime.today()
@@ -649,7 +695,7 @@ class LDAPProvisioner(object):
             raise
         finally:
             self.provisioner_state = self.IDLE
-    
+
     def group_to_ldap_group(self, g):
         """
         Return an `LDAPTarget` from the full path to a
@@ -658,19 +704,20 @@ class LDAPProvisioner(object):
         log = self.log
         log.debug(
             "Looking up group, '{group}' in groupmap ...",
-            event_type='groupmap_lookup',
-            group=g)
+            event_type="groupmap_lookup",
+            group=g,
+        )
         group_map = self.group_map
         stem_map = self.stem_map
         result = group_map.get(g, None)
         if result is not None:
-            ldap_group = result.get('group', None)
-            create_group = result.get('create_group', None)
-            create_posix_group = result.get('create_posix_group', None)
-            create_context = result.get('create_context', None)
-            attrib_name = result.get('attrib_name', None)
-            attrib_value = result.get('attrib_value', None)
-            multi_valued = result.get('multi_valued', None)
+            ldap_group = result.get("group", None)
+            create_group = result.get("create_group", None)
+            create_posix_group = result.get("create_posix_group", None)
+            create_context = result.get("create_context", None)
+            attrib_name = result.get("attrib_name", None)
+            attrib_value = result.get("attrib_value", None)
+            multi_valued = result.get("multi_valued", None)
             if ldap_group is not None:
                 target = ldap_group
                 target_type = "group"
@@ -679,41 +726,45 @@ class LDAPProvisioner(object):
                 target_type = "attribute"
             log.debug(
                 "Group '{group}' mapped to '{target}'",
-                event_type='groupmap_match',
+                event_type="groupmap_match",
                 group=g,
-                target=target) 
+                target=target,
+            )
             return LDAPTarget(
-                    target_type,
-                    ldap_group, 
-                    create_group, 
-                    create_posix_group, 
-                    create_context,
-                    attrib_name,
-                    attrib_value,
-                    multi_valued)
+                target_type,
+                ldap_group,
+                create_group,
+                create_posix_group,
+                create_context,
+                attrib_name,
+                attrib_value,
+                multi_valued,
+            )
         else:
-            parts = g.split(':')
+            parts = g.split(":")
             partition_indices = range(-1, -len(parts), -1)
-            for n, partition_index in enumerate(partition_indices): 
+            for n, partition_index in enumerate(partition_indices):
                 stem_parts = parts[:partition_index]
-                stem = ':'.join(stem_parts) + ':'
-                group_part = ':'.join(parts[partition_index:])
+                stem = ":".join(stem_parts) + ":"
+                group_part = ":".join(parts[partition_index:])
                 log.debug(
                     "Attempting to match stem, '{stem}' ...",
-                    event_type='stemmap_lookup',
-                    stem=stem)
+                    event_type="stemmap_lookup",
+                    stem=stem,
+                )
                 result = stem_map.get(stem, None)
                 if result is not None:
-                    if n > 0 and not result.get('recursive', False):
-                        log.debug("Rejecting stem match '{stem}' because entry is not recursive.",
-                            event_type='stemmap_lookup',
+                    if n > 0 and not result.get("recursive", False):
+                        log.debug(
+                            "Rejecting stem match '{stem}' because entry is not recursive.",
+                            event_type="stemmap_lookup",
                             stem=stem,
                         )
                         continue
-                    template = Template(result['template'])
-                    attribute = result.get('attribute', None)
-                    path_map = result.get('path_map', None)
-                    multi_valued = result.get('multi_valued', False)
+                    template = Template(result["template"])
+                    attribute = result.get("attribute", None)
+                    path_map = result.get("path_map", None)
+                    multi_valued = result.get("multi_valued", False)
                     mapped_components = {}
                     if path_map:
                         for k, v in path_map.items():
@@ -723,32 +774,43 @@ class LDAPProvisioner(object):
                     ldap_group = None
                     target_type = None
                     if not attribute:
-                        ldap_group = template.render(group=group_part, stem=stem, fqgroup=g, mapped_components=mapped_components)
-                        target_type = 'group'
+                        ldap_group = template.render(
+                            group=group_part,
+                            stem=stem,
+                            fqgroup=g,
+                            mapped_components=mapped_components,
+                        )
+                        target_type = "group"
                     else:
                         attrib_name = attribute
-                        attrib_value = template.render(group=group_part, stem=stem, fqgroup=g, mapped_components=mapped_components)
-                        target_type = 'attribute'
-                    create_group = result['create_group']
-                    create_posix_group = result['create_posix_group']
-                    create_context = result.get('create_context', None)
+                        attrib_value = template.render(
+                            group=group_part,
+                            stem=stem,
+                            fqgroup=g,
+                            mapped_components=mapped_components,
+                        )
+                        target_type = "attribute"
+                    create_group = result["create_group"]
+                    create_posix_group = result["create_posix_group"]
+                    create_context = result.get("create_context", None)
                     log.debug(
                         "Group '{group}' stem-mapped to '{ldap_group}'",
-                        event_type='groupmap_match',
+                        event_type="groupmap_match",
                         group=g,
-                        ldap_group=ldap_group) 
+                        ldap_group=ldap_group,
+                    )
                     return LDAPTarget(
                         target_type=target_type,
-                        group=ldap_group, 
-                        create_group=create_group, 
-                        create_posix_group=create_posix_group, 
+                        group=ldap_group,
+                        create_group=create_group,
+                        create_posix_group=create_posix_group,
                         create_context=create_context,
                         attrib_name=attribute,
                         attrib_value=attrib_value,
                         multi_valued=multi_valued,
                     )
-            return None 
-       
+            return None
+
     @inlineCallbacks
     def get_ldap_client(self):
         """
@@ -756,12 +818,11 @@ class LDAPProvisioner(object):
         """
         log = self.log
         config = self.config
-        base_dn = config['base_dn']
         start_tls = self.start_tls
         ldap_host = self.ldap_host
         ldap_port = self.ldap_port
-        bind_dn = config.get('bind_dn', None)
-        bind_passwd = config.get('passwd', None)
+        bind_dn = config.get("bind_dn", None)
+        bind_passwd = config.get("passwd", None)
         ep = endpoints.TCP4ClientEndpoint(self.reactor, ldap_host, ldap_port)
         log.debug("ldap_host: {ldap_host}", ldap_host=ldap_host)
         log.debug("ldap_port: {ldap_port}", ldap_port=ldap_port)
@@ -770,24 +831,26 @@ class LDAPProvisioner(object):
         try:
             log.debug(
                 "LDAP client connected to server: host={ldap_host}, port={ldap_port}",
-                event_type='ldap_connect',
+                event_type="ldap_connect",
                 ldap_host=ldap_host,
-                ldap_port=ldap_port)
+                ldap_port=ldap_port,
+            )
             if start_tls:
                 yield client.startTLS()
-                log.debug("LDAP client initiated StartTLS.", event_type='ldap_starttls')
+                log.debug("LDAP client initiated StartTLS.", event_type="ldap_starttls")
             if bind_dn and bind_passwd:
                 yield client.bind(bind_dn, bind_passwd)
                 log.debug(
                     "LDAP client BIND as '{bind_dn}'.",
-                    event_type='ldap_bind',
-                    bind_dn=bind_dn)
+                    event_type="ldap_bind",
+                    bind_dn=bind_dn,
+                )
         except Exception:
             if client.connected:
                 client.unbind()
             raise
         returnValue(client)
- 
+
     @inlineCallbacks
     def provision_ldap(self):
         log = self.log
@@ -795,21 +858,18 @@ class LDAPProvisioner(object):
         yield self.transfer_intake_to_batch()
         # Process the normalized batch.
         group_sql = "SELECT rowid, grp FROM groups ORDER BY grp ASC;"
-        memb_add_sql = "SELECT member FROM member_ops WHERE grp = ? AND op = ? ORDER BY member ASC;" 
-        memb_del_sql = "SELECT member FROM member_ops WHERE grp = ? AND op = ? ORDER BY member ASC;" 
+        memb_add_sql = (
+            "SELECT member FROM member_ops WHERE grp = ? AND op = ?"
+            " ORDER BY member ASC;"
+        )
+        memb_del_sql = (
+            "SELECT member FROM member_ops WHERE grp = ? AND op = ? "
+            "ORDER BY member ASC;"
+        )
         subj_sql = "SELECT DISTINCT member FROM member_ops ORDER BY member ASC;"
-        subj_add_sql = dedent("""\
-            SELECT DISTINCT groups.grp 
-            FROM groups
-                INNER JOIN member_ops
-                    ON groups.rowid = member_ops.grp
-            WHERE member = ?
-            AND op = ? 
-            ORDER BY groups.grp ASC
-            ;
-            """)
-        subj_del_sql = dedent("""\
-            SELECT DISTINCT groups.grp 
+        subj_add_sql = dedent(
+            """\
+            SELECT DISTINCT groups.grp
             FROM groups
                 INNER JOIN member_ops
                     ON groups.rowid = member_ops.grp
@@ -817,77 +877,127 @@ class LDAPProvisioner(object):
             AND op = ?
             ORDER BY groups.grp ASC
             ;
-            """)
+            """
+        )
+        subj_del_sql = dedent(
+            """\
+            SELECT DISTINCT groups.grp
+            FROM groups
+                INNER JOIN member_ops
+                    ON groups.rowid = member_ops.grp
+            WHERE member = ?
+            AND op = ?
+            ORDER BY groups.grp ASC
+            ;
+            """
+        )
         results = yield self.runDBCommand(group_sql)
         mapped_groups = {}
         for groupid, group in results:
             target = self.group_to_ldap_group(group)
             if target is None:
                 log.debug(
-                    "Group '{group}' is not a targetted group.  Skipping ...", 
-                    event_type='log',
-                    group=group)
+                    "Group '{group}' is not a targetted group.  Skipping ...",
+                    event_type="log",
+                    group=group,
+                )
                 yield self.runDBCommand(
-                    '''DELETE FROM member_ops WHERE grp = ?;''', [groupid], is_query=False)
+                    """DELETE FROM member_ops WHERE grp = ?;""",
+                    [groupid],
+                    is_query=False,
+                )
                 yield self.runDBCommand(
-                    '''DELETE FROM groups WHERE grp = ?;''', [group], is_query=False)
+                    """DELETE FROM groups WHERE grp = ?;""", [group], is_query=False
+                )
                 continue
             target_name = get_target_name(target)
-            memb_add_results = yield self.runDBCommand(memb_add_sql, [groupid, constants.ACTION_ADD])
+            memb_add_results = yield self.runDBCommand(
+                memb_add_sql, [groupid, constants.ACTION_ADD]
+            )
             add_membs = set([r[0] for r in memb_add_results])
             del memb_add_results
-            memb_del_results = yield self.runDBCommand(memb_del_sql, [groupid, constants.ACTION_DELETE])
+            memb_del_results = yield self.runDBCommand(
+                memb_del_sql, [groupid, constants.ACTION_DELETE]
+            )
             del_membs = set([r[0] for r in memb_del_results])
             del memb_del_results
             if len(add_membs) > 0 or len(del_membs) > 0:
                 log.debug(
-                    "Applying changes to target {target} ...", 
-                    event_type='log',
-                    target=target_name)
-                if target.target_type == 'group':
+                    "Applying changes to target {target} ...",
+                    event_type="log",
+                    target=target_name,
+                )
+                if target.target_type == "group":
                     client = yield self.get_ldap_client()
                     with LDAPClientManager(client, active=True) as managed_client:
-                        group_dn, group_type, ldap_group_members = yield self.apply_changes_to_ldap_group(
-                            target, add_membs, del_membs, managed_client)
+                        (
+                            group_dn,
+                            group_type,
+                            ldap_group_members,
+                        ) = yield self.apply_changes_to_ldap_group(
+                            target, add_membs, del_membs, managed_client
+                        )
                     log.debug(
                         "Applied changes to LDAP group {ldap_group}.",
-                        event_type='ldap_group_change',
-                        ldap_group=group_dn)
+                        event_type="ldap_group_change",
+                        ldap_group=group_dn,
+                    )
                     mapped_groups[target.group] = group_dn
         results = yield self.runDBCommand(subj_sql)
-        for (subject_id,) in results: 
-            add_results = yield self.runDBCommand(subj_add_sql, [subject_id, constants.ACTION_ADD])
+        for (subject_id,) in results:
+            add_results = yield self.runDBCommand(
+                subj_add_sql, [subject_id, constants.ACTION_ADD]
+            )
             add_membs = [self.group_to_ldap_group(r[0]) for r in add_results]
             del add_results
-            add_attribs = [x for x in add_membs if x is not None and x.target_type == 'attribute']
-            add_membs = set(mapped_groups[t.group] for t in add_membs if t is not None and t.target_type == 'group')
-            del_results = yield self.runDBCommand(subj_del_sql, [subject_id, constants.ACTION_DELETE])
+            add_attribs = [
+                x for x in add_membs if x is not None and x.target_type == "attribute"
+            ]
+            add_membs = set(
+                mapped_groups[t.group]
+                for t in add_membs
+                if t is not None and t.target_type == "group"
+            )
+            del_results = yield self.runDBCommand(
+                subj_del_sql, [subject_id, constants.ACTION_DELETE]
+            )
             del_membs = [self.group_to_ldap_group(r[0]) for r in del_results]
             del del_results
-            del_attribs = [x for x in del_membs if x is not None and x.target_type == 'attribute']
-            del_membs = set(mapped_groups[t.group] for t in del_membs if t is not None and t.target_type == 'group')
-            if len(add_membs) + len(del_membs) + len(add_attribs) + len(del_attribs) > 0:
+            del_attribs = [
+                x for x in del_membs if x is not None and x.target_type == "attribute"
+            ]
+            del_membs = set(
+                mapped_groups[t.group]
+                for t in del_membs
+                if t is not None and t.target_type == "group"
+            )
+            if (
+                len(add_membs) + len(del_membs) + len(add_attribs) + len(del_attribs)
+                > 0
+            ):
                 log.debug(
-                    "Applying changes to subject {subject} ...",
-                    subject=subject_id)
+                    "Applying changes to subject {subject} ...", subject=subject_id
+                )
                 client = yield self.get_ldap_client()
                 with LDAPClientManager(client, active=True) as managed_client:
                     yield self.apply_changes_to_ldap_subj(
-                        subject_id, 
-                        add_membs, 
-                        del_membs, 
+                        subject_id,
+                        add_membs,
+                        del_membs,
                         add_attribs,
                         del_attribs,
-                        managed_client)
+                        managed_client,
+                    )
                 log.debug(
                     "Applied changes to LDAP subject '{subject_id}'.",
-                    event_type='ldap_user_change',
-                    subject_id=subject_id)
+                    event_type="ldap_user_change",
+                    subject_id=subject_id,
+                )
         sql = "DELETE FROM groups;"
         yield self.runDBCommand(sql, is_query=False)
         sql = "DELETE FROM member_ops;"
         yield self.runDBCommand(sql, is_query=False)
-                
+
     @inlineCallbacks
     def transfer_intake_to_batch(self):
         """
@@ -895,32 +1005,34 @@ class LDAPProvisioner(object):
         This algorithm depends on the behavior of the SQLite3 ROWID-- specifically
         its properties relating to monotomically increasing values, and its reset
         to 1 if the table is empty.
-        
+
         Ref: https://www.sqlite.org/autoinc.html
         """
-        log = self.log
-        sql = dedent("""\
+        sql = dedent(
+            """\
             SELECT rowid, grp, member, op
             FROM intake
             ORDER BY rowid ASC
             ;
-            """)
+            """
+        )
         intake = yield self.runDBCommand(sql)
         for rowid, group, member, action in intake:
             groupid = yield self.get_group_id(group)
-            sql = dedent("""\
+            sql = dedent(
+                """\
                 SELECT op, member
-                FROM member_ops 
+                FROM member_ops
                 WHERE grp = ?
                 AND member = ?
                 ;
-                """)
+                """
+            )
             results = yield self.runDBCommand(sql, [groupid, member])
             if len(results) == 0:
                 sql = "INSERT INTO member_ops(op, member, grp) VALUES(?, ?, ?);"
                 yield self.runDBCommand(sql, [action, member, groupid], is_query=False)
             else:
-                result = results[0]
                 sql = "UPDATE member_ops SET op = ? WHERE grp=? AND member=?;"
                 yield self.runDBCommand(sql, [action, groupid, member], is_query=False)
             sql = "DELETE FROM intake WHERE rowid = ? ;"
@@ -935,7 +1047,6 @@ class LDAPProvisioner(object):
         log = self.log
         log.debug("Transforming subjects to members ...")
         results = []
-        subject_id_attribute = self.subject_id_attribute
         chunk_size = self.subject_chunk_size
         q = list(subjects)
         log.debug("{q_size} subjects to transform.", q_size=len(q))
@@ -945,28 +1056,32 @@ class LDAPProvisioner(object):
             log.debug(
                 "Transforming {chunk_size} subjects, {q_size} remaining.",
                 chunk_size=len(chunk),
-                q_size=len(q))
-            lst =  yield self.load_subjects(set(chunk), client, attribs=None)
+                q_size=len(q),
+            )
+            lst = yield self.load_subjects(set(chunk), client, attribs=None)
             results.extend(lst)
-            log.debug("{result_count} results have been accumulated.", result_count=len(results))
+            log.debug(
+                "{result_count} results have been accumulated.",
+                result_count=len(results),
+            )
         fq_subjects = set(str(x[1].dn).lower() for x in results)
         returnValue(fq_subjects)
 
-    @inlineCallbacks 
+    @inlineCallbacks
     def apply_changes_to_ldap_group(self, target, adds, deletes, client):
         """
         Applies subject `adds` and `deletes` to an existing LDAP group's membership.
 
         :param:`target`: An `LDAPTarget`.
         :param:`adds`: An iterable of subject IDs to add to the membership.
-        :param:`deletes`: An iterable of subject IDs to delete from the 
+        :param:`deletes`: An iterable of subject IDs to delete from the
         membership.  If `deletes` is set to None, all the members not in `adds`
         will be removed from the group.
         :param:`client`: The Ldaptor client.
 
         :returns: A Deferred that fires with a tuple of (the `DistinguishedName`
-        of the LDAP group entry, the group_type, and a list of the LDAP member 
-        values) or None if the group does not exist and cannot be created due to 
+        of the LDAP group entry, the group_type, and a list of the LDAP member
+        values) or None if the group does not exist and cannot be created due to
         configuration settings.
 
         The member values returned will be DNs identifying subjects for groups
@@ -980,22 +1095,23 @@ class LDAPProvisioner(object):
         provision_group = self.provision_group
         empty_dn = config.get("empty_dn", None)
         group_attrib_type = self.group_attrib_type
-        chunk_size = self.subject_chunk_size
         log.debug("Looking up LDAP group ...")
-        group_entry = yield self.lookup_group(target.group, client) 
+        group_entry = yield self.lookup_group(target.group, client)
         log.debug("Looked up LDAP group.")
-        group_type = 'groupOfNames'
+        group_type = "groupOfNames"
         if group_entry is None:
             if target.create_posix_group:
-                group_type = 'posixGroup'
+                group_type = "posixGroup"
         else:
             object_classes = set(group_entry.get("objectClass"))
             if "posixGroup" in object_classes:
                 group_type = "posixGroup"
-        log.debug("Target group '{target}' is of type {group_type}.",
+        log.debug(
+            "Target group '{target}' is of type {group_type}.",
             target=target.group,
-            group_type=group_type)
-        if group_type == 'groupOfNames':
+            group_type=group_type,
+        )
+        if group_type == "groupOfNames":
             log.debug("Transforming subject additions to LDAP members.")
             fq_adds = yield self.xform_subjects_to_members(adds, client)
             if deletes is not None:
@@ -1004,13 +1120,13 @@ class LDAPProvisioner(object):
             else:
                 fq_deletes = set([])
             group_attribute = "member"
-        elif group_type == 'posixGroup':
+        elif group_type == "posixGroup":
             fq_adds = set(subject.lower() for subject in adds)
             if deletes is not None:
-                fq_deletes = set(subject.lower() for subject in deletes)   
+                fq_deletes = set(subject.lower() for subject in deletes)
             else:
                 fq_deletes = set([])
-            group_attribute = 'memberUid'
+            group_attribute = "memberUid"
         else:
             raise Exception("Unknown group type '{0}'.".format(group_type))
         needs_create = False
@@ -1018,28 +1134,30 @@ class LDAPProvisioner(object):
             if target.create_group:
                 log.debug(
                     "Creating LDAP group {ldap_group},{ldap_context} ...",
-                    event_type='create_ldap_group',
+                    event_type="create_ldap_group",
                     ldap_group=target.group,
-                    ldap_context=target.create_context)
+                    ldap_context=target.create_context,
+                )
                 memb_set = set([])
                 needs_create = True
             elif target.create_posix_group and self.process_posix:
                 log.debug(
                     "Creating LDAP POSIX group {ldap_group},{ldap_context} ...",
-                    event_type='create_ldap_posix_group',
+                    event_type="create_ldap_posix_group",
                     ldap_group=target.group,
-                    ldap_context=target.create_context)
+                    ldap_context=target.create_context,
+                )
                 memb_set = set([])
                 needs_create = True
-            else: 
-                returnValue(None) 
+            else:
+                returnValue(None)
         elif deletes is not None:
             memb_set = set([m.lower() for m in group_entry.get(group_attribute, [])])
         else:
             memb_set = set([])
         memb_set = memb_set.union(fq_adds)
         memb_set = memb_set - fq_deletes
-        if (empty_dn is not None) and (group_type != 'posixGroup'):
+        if (empty_dn is not None) and (group_type != "posixGroup"):
             if len(memb_set) == 0:
                 memb_set.add(empty_dn)
             if len(memb_set) > 1 and empty_dn in memb_set:
@@ -1050,53 +1168,57 @@ class LDAPProvisioner(object):
             if needs_create:
                 log.debug("Creating LDAP group ...")
                 o = ldapsyntax.LDAPEntry(client, target.create_context)
-                attribs = {
-                    'objectClass': ['top', group_type],
-                    group_attribute: members}
-                if group_type == 'posixGroup':
+                attribs = {"objectClass": ["top", group_type], group_attribute: members}
+                if group_type == "posixGroup":
                     if self.process_posix:
                         gid = yield self.get_next_free_posix_gid(client)
                         attribs["gidNumber"] = gid
                     else:
-                        raise Exception(
-                            "Cannot create POSIX group.  No GID source.")   
-                rdn = RelativeDistinguishedName("{0}={1}".format(group_attrib_type, target.group))
+                        raise Exception("Cannot create POSIX group.  No GID source.")
+                rdn = RelativeDistinguishedName(
+                    "{0}={1}".format(group_attrib_type, target.group)
+                )
                 try:
                     group_entry = yield o.addChild(rdn, attribs)
-                except Exception as ex:
+                except Exception:
                     log.error(
                         "Error while trying create LDAP group '{rdn},{ldap_context}'.",
-                        event_type='ldap_error',
+                        event_type="ldap_error",
                         rdn=str(rdn),
-                        ldap_context=target.create_context)
+                        ldap_context=target.create_context,
+                    )
                     raise
             else:
                 log.debug("Modifying LDAP group.")
                 try:
                     group_entry[group_attribute] = members
                     yield group_entry.commit()
-                except Exception as ex:
+                except Exception:
                     log.error(
-                        "Error while attempting to modify LDAP group: {dn}", 
-                        event_type='ldap_error',
-                        dn=str(group_entry.dn)) 
+                        "Error while attempting to modify LDAP group: {dn}",
+                        event_type="ldap_error",
+                        dn=str(group_entry.dn),
+                    )
                     raise
                 log.debug("LDAP group modified.")
         returnValue((normalize_dn(group_entry.dn), group_type, members))
-       
-    @inlineCallbacks 
-    def apply_changes_to_ldap_subj(self, subject_id, fq_adds, fq_deletes, attrib_adds, attrib_dels, client):
+
+    @inlineCallbacks
+    def apply_changes_to_ldap_subj(
+        self, subject_id, fq_adds, fq_deletes, attrib_adds, attrib_dels, client
+    ):
         """
         Make changes to a single subject entry in the LDAP directory.
 
         :param subject_id:`The identifier used to look up the subject in the LDAP directory.`
         :param fq_adds:`A set of group DNs to add to the subject.`
         :param fq_deletes:`A set of group DNs to remove from the subject.`
-        :param attrib_adds:`An iterable of LDAPTarget objects with target_type "attribute" to be added to the subject.`
-        :param attrib_dels:`An iterable of LDAPTarget objects with target_type "attribute" to be removed from the subject.`
+        :param attrib_adds:`An iterable of LDAPTarget objects with target_type
+            "attribute" to be added to the subject.`
+        :param attrib_dels:`An iterable of LDAPTarget objects with target_type "attribute"
+            to be removed from the subject.`
         :param client:`The connected LDAP client protocol.`
         """
-        log = self.log
         provision_user = self.provision_user
         if not provision_user:
             returnValue(None)
@@ -1113,9 +1235,12 @@ class LDAPProvisioner(object):
         if len(subjects) == 0:
             self.log.warn(
                 "No DN found for subject ID '{subject_id}.  Skipping ...'",
-                subject_id=subject_id)
+                subject_id=subject_id,
+            )
             returnValue(None)
-        assert not len(subjects) > 1, "Multiple DNs found for subject ID '{0}'".format(subject_id)
+        assert not len(subjects) > 1, "Multiple DNs found for subject ID '{0}'".format(
+            subject_id
+        )
         subject_id, subject_entry = subjects[0]
         membs = subject_entry.get(user_attribute, [])
         memb_set = set([normalize_dn(DistinguishedName(m)) for m in membs])
@@ -1159,16 +1284,17 @@ class LDAPProvisioner(object):
                         subject_entry[attrib_name] = values
                 else:
                     del subject_entry[attrib_name]
-            yield subject_entry.commit()    
-        except Exception as ex:
+            yield subject_entry.commit()
+        except Exception:
             self.log.error(
                 "Error while attempting to modify LDAP subject: dn={dn}, attribs={attribs}",
-                    event_type='ldap_error',
-                    dn=subject_entry.dn,
-                    attribs=subject_entry.items()) 
+                event_type="ldap_error",
+                dn=subject_entry.dn,
+                attribs=subject_entry.items(),
+            )
             raise
-       
-    @inlineCallbacks 
+
+    @inlineCallbacks
     def load_subjects(self, subject_ids, client, attribs=()):
         base_dn = self.account_base_dn
         if base_dn is None:
@@ -1182,11 +1308,12 @@ class LDAPProvisioner(object):
             o = ldapsyntax.LDAPEntry(client, base_dn)
             dlist.append(o.search(filterText=fltr, attributes=attribs))
         try:
-            results = yield gatherResults(dlist) 
-        except Exception as ex:
+            results = yield gatherResults(dlist)
+        except Exception:
             self.log.error(
-                "Error while searching for LDAP subjects", 
-                event_type='error_load_ldap_subjects') 
+                "Error while searching for LDAP subjects",
+                event_type="error_load_ldap_subjects",
+            )
             raise
         for subject_id, resultset in zip(subject_ids, results):
             for result in resultset:
@@ -1199,16 +1326,15 @@ class LDAPProvisioner(object):
         base_dn = self.group_base_dn
         if base_dn is None:
             base_dn = self.base_dn
-        group_attribs = ['member', 'memberUid', 'objectClass']
+        group_attribs = ["member", "memberUid", "objectClass"]
         fltr = "({0}={1})".format(group_attrib_type, escape_filter_chars(group_name))
         o = ldapsyntax.LDAPEntry(client, base_dn)
         try:
-            results = yield o.search(
-                filterText=fltr, attributes=group_attribs) 
-        except Exception as ex:
+            results = yield o.search(filterText=fltr, attributes=group_attribs)
+        except Exception:
             self.log.error(
-                "Error while searching for LDAP group: {group}",
-                group=group_name) 
+                "Error while searching for LDAP group: {group}", group=group_name
+            )
             raise
         if len(results) == 0:
             self.log.warn("Could not find group, '{group}'.", group=group_name)
@@ -1216,7 +1342,7 @@ class LDAPProvisioner(object):
         else:
             returnValue(results[0])
 
-    @inlineCallbacks        
+    @inlineCallbacks
     def get_group_id(self, group):
         dbpool = self.dbpool
         sql = "SELECT rowid FROM groups WHERE grp = ?;"
@@ -1238,12 +1364,13 @@ class LDAPProvisioner(object):
         sql = "INSERT INTO intake(grp, member, op) VALUES(?, ?, ?);"
         yield self.runDBCommand(sql, [group, member, action], is_query=False)
         self.log.debug(
-            "Added provision request to intake: group={group}, subject={subject}, action={action}",
-            event_type='request_to_intake',
+            "Added provision request to intake: group={group}, "
+            "subject={subject}, action={action}",
+            event_type="request_to_intake",
             group=group,
             subject=member,
-            action=action)
-    
+            action=action,
+        )
 
     def load_group_map(self, gm):
         log = self.log
@@ -1251,14 +1378,14 @@ class LDAPProvisioner(object):
             with open(gm, "r") as f:
                 try:
                     o = load(f)
-                except Exception as ex:
+                except Exception:
                     log.failure("Error reading group mapping.")
-                    d = self.reactor.callLater(0, self.reactor.stop)
+                    self.reactor.callLater(0, self.reactor.stop)
                     raise
         except exceptions.IOError as ex:
             log.failure("Error opening group map file '{0}': {1}".format(gm, ex))
-            d = self.reactor.callLater(0, self.reactor.stop)
-            raise 
+            self.reactor.callLater(0, self.reactor.stop)
+            raise
         direct_map = {}
         stem_map = {}
         for group, value in o.iteritems():
@@ -1266,163 +1393,196 @@ class LDAPProvisioner(object):
             if not is_folder:
                 if isinstance(value, basestring):
                     direct_map[group] = {
-                        'group': value, 
-                        'create_group': False, 
-                        'create_posix_group': False}
+                        "group": value,
+                        "create_group": False,
+                        "create_posix_group": False,
+                    }
                 elif isinstance(value, Mapping):
-                    if 'group' in value:
-                        ldap_group = value['group']
+                    if "group" in value:
+                        ldap_group = value["group"]
                         if not isinstance(ldap_group, basestring):
                             log.warn(
-                                "Group mapping for '{group}' does not have a valid target ('group' must be a name).",
-                                event_type='groupmap_parse_error',
-                                group=group)
+                                "Group mapping for '{group}' does not have "
+                                "a valid target ('group' must be a name).",
+                                event_type="groupmap_parse_error",
+                                group=group,
+                            )
                             continue
-                        create_group = bool(value.get('create_group', False))
-                        create_posix_group = bool(value.get('create_posix_group', False))
+                        create_group = bool(value.get("create_group", False))
+                        create_posix_group = bool(
+                            value.get("create_posix_group", False)
+                        )
                         create_a_group = create_group or create_posix_group
-                        create_context = value.get('create_context', None)
+                        create_context = value.get("create_context", None)
                         if create_context is None and create_a_group:
                             log.warn(
-                                "A group creation option is set for group '{group}' but no 'create_context' was specified.",
-                                event_type='groupmap_parse_error',
-                                group=group)
+                                "A group creation option is set for group "
+                                "'{group}' but no 'create_context' was specified.",
+                                event_type="groupmap_parse_error",
+                                group=group,
+                            )
                             create_group = False
                             create_posix_group = False
                             create_a_group = False
                         props = {
-                            'group': ldap_group, 
-                            'create_group': create_group, 
-                            'create_posix_group': create_posix_group}
+                            "group": ldap_group,
+                            "create_group": create_group,
+                            "create_posix_group": create_posix_group,
+                        }
                         if create_a_group:
-                            props['create_context'] = create_context
+                            props["create_context"] = create_context
                         direct_map[group] = props
-                    elif 'attribute' in value:
+                    elif "attribute" in value:
                         attrib_name = value["attribute"]
                         if not isinstance(attrib_name, basestring):
                             log.warn(
-                                "Group-to-attribute mapping for {group} does not have a valid target ('attribute' must be a name).",
-                                event_type='groupmap_parse_error',
-                                group=group)
+                                "Group-to-attribute mapping for {group} does "
+                                "not have a valid target ('attribute' must be a name).",
+                                event_type="groupmap_parse_error",
+                                group=group,
+                            )
                             continue
-                        if not 'value' in value:
+                        if "value" not in value:
                             log.warn(
-                                "Group-to-attribute mapping for {group} does not have a valid target ('value' must be present).",
-                                event_type='groupmap_parse_error',
-                                group=group)
+                                "Group-to-attribute mapping for {group} "
+                                "does not have a valid target ('value' must be present).",
+                                event_type="groupmap_parse_error",
+                                group=group,
+                            )
                             continue
                         attrib_value = value["value"]
                         if not isinstance(attrib_value, basestring):
                             log.warn(
-                                "Group-to-attribute mapping for {group} does not have a valid target ('value' must be a string).",
-                                event_type='groupmap_parse_error',
-                                group=group)
+                                "Group-to-attribute mapping for {group} "
+                                "does not have a valid target ('value' must be a string).",
+                                event_type="groupmap_parse_error",
+                                group=group,
+                            )
                             continue
                         multi_valued = value.get("multi_valued", True)
                         if not isinstance(multi_valued, bool):
                             log.warn(
-                                "Group-to-attribute mapping for {group} does not have a valid target ('multi_valued' must be a bool).",
-                                event_type='groupmap_parse_error',
-                                group=group)
+                                "Group-to-attribute mapping for {group} does not "
+                                "have a valid target ('multi_valued' must be a bool).",
+                                event_type="groupmap_parse_error",
+                                group=group,
+                            )
                             continue
-                        props = dict(attrib_name=attrib_name, attrib_value=attrib_value, multi_valued=multi_valued)
+                        props = dict(
+                            attrib_name=attrib_name,
+                            attrib_value=attrib_value,
+                            multi_valued=multi_valued,
+                        )
                         direct_map[group] = props
                     else:
                         log.warn(
-                            "Group mapping for '{group}' does not have a valid target (no 'group' or 'attribute' option).",
-                            event_type='groupmap_parse_error',
-                            group=group)
+                            "Group mapping for '{group}' does not have a "
+                            "valid target (no 'group' or 'attribute' option).",
+                            event_type="groupmap_parse_error",
+                            group=group,
+                        )
                         continue
                 else:
                     log.warn(
                         "Invalid target for group mapping '{group}'.",
-                        event_type='groupmap_parse_error',
-                        group=group)
+                        event_type="groupmap_parse_error",
+                        group=group,
+                    )
                     continue
             else:
                 if not isinstance(value, Mapping):
                     log.warn(
                         "Invalid target for stem '{stem}'.",
-                        event_type='groupmap_parse_error',
-                        stem=group)
+                        event_type="groupmap_parse_error",
+                        stem=group,
+                    )
                     continue
-                template = value.get('template', None)
-                create_group = bool(value.get('create_group', False))
-                create_posix_group = bool(value.get('create_posix_group', False))
+                template = value.get("template", None)
+                create_group = bool(value.get("create_group", False))
+                create_posix_group = bool(value.get("create_posix_group", False))
                 create_a_group = create_group or create_posix_group
-                create_context = value.get('create_context', None)
-                attribute = value.get('attribute', None)
-                multi_valued = value.get('multi_valued', None)
-                path_map = value.get('path_map', None)
-                recursive = value.get('recursive', False)
+                create_context = value.get("create_context", None)
+                attribute = value.get("attribute", None)
+                multi_valued = value.get("multi_valued", None)
+                path_map = value.get("path_map", None)
+                recursive = value.get("recursive", False)
                 if template is None:
                     log.warn(
                         "Invalid target for stem mapping '{stem}' (no 'template' option).",
-                        event_type='groupmap_parse_error',
-                        stem=group)
+                        event_type="groupmap_parse_error",
+                        stem=group,
+                    )
                     continue
-                if not isinstance(template, basestring): 
+                if not isinstance(template, basestring):
                     log.warn(
-                        "Invalid target for stem mapping '{stem}' ('template' must be string-like).",
-                        event_type='groupmap_parse_error',
-                        stem=group)
+                        "Invalid target for stem mapping '{stem}' "
+                        "('template' must be string-like).",
+                        event_type="groupmap_parse_error",
+                        stem=group,
+                    )
                     continue
                 if create_context is None and create_a_group:
                     log.warn(
-                        "Group creation option is set for stem '{stem}' but no 'create_context' was specified.",
-                        event_type='groupmap_parse_error',
-                        stem=group)
+                        "Group creation option is set for stem '{stem}' "
+                        "but no 'create_context' was specified.",
+                        event_type="groupmap_parse_error",
+                        stem=group,
+                    )
                     create_group = False
                     create_posix_group = False
                     create_a_group = False
                 if attribute and create_a_group:
                     log.warn(
-                        "Invalid target for stem mapping '{stem}' (cannot specify 'attribute' *and* 'create_...' options.",
-                        event_type='groupmap_parse_error',
+                        "Invalid target for stem mapping '{stem}' "
+                        "(cannot specify 'attribute' *and* 'create_...' options.",
+                        event_type="groupmap_parse_error",
                         stem=group,
-                    ) 
+                    )
                     continue
                 if (not attribute) and multi_valued:
                     log.warn(
-                        "Invalid target for stem mapping '{stem}' (cannot specify 'multi_valued' without 'attribute' option.",
-                        event_type='groupmap_parse_error',
+                        "Invalid target for stem mapping '{stem}' "
+                        "(cannot specify 'multi_valued' without 'attribute' option.",
+                        event_type="groupmap_parse_error",
                         stem=group,
-                    ) 
+                    )
                     continue
                 if path_map and (not isinstance(path_map, Mapping)):
                     log.warn(
-                        "Invalid target for stem mapping '{stem}' ('path_map' must map names to path component positions.",
-                        event_type='groupmap_parse_error',
+                        "Invalid target for stem mapping '{stem}' "
+                        "('path_map' must map names to path component positions.",
+                        event_type="groupmap_parse_error",
                         stem=group,
-                    ) 
+                    )
                     continue
                 props = {
-                    'template': template, 
-                    'create_group': create_group,
-                    'create_posix_group': create_posix_group,
-                    'recursive': recursive,
-                    'multi_valued': multi_valued,
+                    "template": template,
+                    "create_group": create_group,
+                    "create_posix_group": create_posix_group,
+                    "recursive": recursive,
+                    "multi_valued": multi_valued,
                 }
                 if attribute:
-                    props['attribute'] = attribute
+                    props["attribute"] = attribute
                 if path_map:
-                    props['path_map'] = path_map
+                    props["path_map"] = path_map
                 if create_a_group:
-                    props['create_context'] = create_context
+                    props["create_context"] = create_context
                 stem_map[group] = props
             self.group_map = direct_map
             self.stem_map = stem_map
         log.debug(
             "Created group maps: group_map={group_map!r} stem_map={stem_map!r}",
-            event_type='groupmap_parsed',
+            event_type="groupmap_parsed",
             group_map=direct_map,
-            stem_map=stem_map)
+            stem_map=stem_map,
+        )
 
     @inlineCallbacks
     def get_next_free_posix_gid(self, client):
         """
         Return the next free POSIX GID number from a `sambaUnixIdPool`.
-        
+
         `client`: An `ldaptor.protocols.ldap.ldapclient.LDAPClient` instance.
         """
         gid_pool_dn = self.gid_pool_dn
@@ -1433,31 +1593,35 @@ class LDAPProvisioner(object):
             gid = int(old_gid) + 1
             entry["gidNumber"] = ["{0}".format(gid)]
             mod = delta.ModifyOp(
-                    str(entry.dn),
-                    [
-                        delta.Delete('gidNumber', [old_gid]),
-                        delta.Add('gidNumber', [gid]),
-                    ]
+                str(entry.dn),
+                [
+                    delta.Delete("gidNumber", [old_gid]),
+                    delta.Add("gidNumber", [gid]),
+                ],
             )
             ldap_request = mod.asLDAP()
             ldap_response = yield client.send(ldap_request)
             result_code = ldap_response.resultCode
-            if result_code == 16: # No such attribute
+            if result_code == 16:  # No such attribute
                 continue
             elif result_code == 0:
                 break
             else:
                 raise Exception(
                     "Error during LDAP modify operation.  Error code was: {0}".format(
-                        result_code))
+                        result_code
+                    )
+                )
         returnValue(gid)
-        
-@inlineCallbacks            
+
+
+@inlineCallbacks
 def delay(reactor, seconds):
     """
     A Deferred that fires after `seconds` seconds.
     """
-    yield task.deferLater(reactor, seconds, lambda : None)
+    yield task.deferLater(reactor, seconds, lambda: None)
+
 
 def test_entry_in_dn_set(entry, dn_set):
     """
@@ -1465,7 +1629,8 @@ def test_entry_in_dn_set(entry, dn_set):
     NOTE: `dn_set` should be normalized to lowercase.
     """
     entry_dn = str(entry.dn).lower()
-    return (entry_dn in dn_set)
+    return entry_dn in dn_set
+
 
 def test_entry_in_uid_set(entry, uid_set):
     """
@@ -1474,7 +1639,8 @@ def test_entry_in_uid_set(entry, uid_set):
     """
     uids = [uid.lower() for uid in entry["uid"]]
     uid = uids[0]
-    return (uid in uid_set)
+    return uid in uid_set
+
 
 def get_target_name(target):
     """
@@ -1485,4 +1651,3 @@ def get_target_name(target):
     elif target.target_type == "attribute":
         return target.attrib_name
     raise Exception("Invalid target type: '{0}'".format(target.target_type))
-
