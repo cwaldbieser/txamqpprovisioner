@@ -30,7 +30,7 @@ from zope.interface import implements
 from txamqpprovisioner import constants
 from txamqpprovisioner.interface import IProvisioner, IProvisionerFactory
 
-if sys.version_info.major == 3:
+if sys.version_info.major >= 3:
     basestring = str
 
 
@@ -114,6 +114,7 @@ class LDAPProvisioner(object):
     base_dn = None
     account_base_dn = None
     group_base_dn = None
+    ad_quirks = False
     IDLE = 0
     PROCESSING_REQUESTS = 1
     MEMBERSHIP_SYNC = 2
@@ -1096,7 +1097,7 @@ class LDAPProvisioner(object):
         empty_dn = config.get("empty_dn", None)
         group_attrib_type = self.group_attrib_type
         log.debug("Looking up LDAP group ...")
-        group_entry = yield self.lookup_group(target.group, client)
+        group_entry, group_members = yield self.lookup_group(target.group, client)
         log.debug("Looked up LDAP group.")
         group_type = "groupOfNames"
         if group_entry is None:
@@ -1152,7 +1153,7 @@ class LDAPProvisioner(object):
             else:
                 returnValue(None)
         elif deletes is not None:
-            memb_set = set([m.lower() for m in group_entry.get(group_attribute, [])])
+            memb_set = set([m.lower() for m in group_members])
         else:
             memb_set = set([])
         memb_set = memb_set.union(fq_adds)
@@ -1322,25 +1323,78 @@ class LDAPProvisioner(object):
 
     @inlineCallbacks
     def lookup_group(self, group_name, client):
+        log = self.log
         group_attrib_type = self.group_attrib_type
         base_dn = self.group_base_dn
         if base_dn is None:
             base_dn = self.base_dn
-        group_attribs = ["member", "memberUid", "objectClass"]
         fltr = "({0}={1})".format(group_attrib_type, escape_filter_chars(group_name))
         o = ldapsyntax.LDAPEntry(client, base_dn)
-        try:
-            results = yield o.search(filterText=fltr, attributes=group_attribs)
-        except Exception:
-            self.log.error(
-                "Error while searching for LDAP group: {group}", group=group_name
+        # AD has a weird range quirk. See:
+        # https://learn.microsoft.com/en-us/troubleshoot/windows-server/identity/domain-controller-returns-500-values-ldap-response
+        range_complete = False
+        range_start = None
+        range_end = None
+        members = set([])
+        while not range_complete:
+            if range_start is None:
+                group_attribs = ["member", "memberUid", "objectClass"]
+            else:
+                group_attribs = [
+                    "objectClass",
+                    "member;range={0}-{1}".format(range_start, range_end),
+                    "memberUid;range={0}-{1}".format(range_start, range_end),
+                ]
+            log.debug(
+                "Looking up group with attribs: {group_attribs}",
+                group_attribs=group_attribs,
             )
-            raise
-        if len(results) == 0:
-            self.log.warn("Could not find group, '{group}'.", group=group_name)
-            returnValue(None)
-        else:
-            returnValue(results[0])
+            try:
+                results = yield o.search(filterText=fltr, attributes=group_attribs)
+            except Exception:
+                self.log.error(
+                    "Error while searching for LDAP group: {group}", group=group_name
+                )
+                raise
+            if len(results) == 0:
+                log.warn("Could not find group, '{group}'.", group=group_name)
+                returnValue(None)
+            else:
+                result = results[0]
+                keys = list(result.keys())
+                log.debug("KEYS in LDAP entry: {keys}", keys=keys)
+                found_range = False
+                for key in keys:
+                    if key.startswith("member;range=") or key.startswith(
+                        "memberUid;range="
+                    ):
+                        found_range = True
+                        range_start, range_end = parse_range(key)
+                        for member in result.get(key):
+                            members.add(member)
+                        log.debug(
+                            "Range {range_start}-{range_end}  {member_count} members.",
+                            range_start=range_start,
+                            range_end=range_end,
+                            member_count=len(members),
+                        )
+                        if range_end == "*":
+                            range_complete = True
+                        else:
+                            diff = range_end - range_start
+                            range_start = range_end + 1
+                            range_end = range_start + diff
+                        break
+                if not found_range:
+                    if "member" in result or "memberUid" in result:
+                        members = set([m for m in result.get(key)])
+                        range_complete = True
+                        log.debug(
+                            "No range.  {member_count} members.",
+                            member_count=len(members),
+                        )
+                        break
+        returnValue((results[0], members))
 
     @inlineCallbacks
     def get_group_id(self, group):
@@ -1651,3 +1705,21 @@ def get_target_name(target):
     elif target.target_type == "attribute":
         return target.attrib_name
     raise Exception("Invalid target type: '{0}'".format(target.target_type))
+
+
+def parse_range(key):
+    """
+    Parse an AD member range. Returns (range_start, range_end). Both will be
+    integers unless range_end is the end of the range.  In that case, range_end
+    will be '*'.
+    """
+    parts = key.split("=")
+    spread = parts[1]
+    parts = spread.split("-")
+    range_start = int(parts[0])
+    raw_end = parts[1]
+    if raw_end == "*":
+        range_end = "*"
+    else:
+        range_end = int(raw_end)
+    return (range_start, range_end)
