@@ -1,44 +1,31 @@
-
 from __future__ import print_function
-from collections import namedtuple
+
 import datetime
 import json
-import commentjson
-import jinja2 
-from textwrap import dedent
 import traceback
+from collections import namedtuple
+from textwrap import dedent
+
 import attr
+import commentjson
+import constants
+import jinja2
 import pylru
-from six import iteritems
 import treq
+from config import load_config, section2dict
+from errors import OptionMissingError
+from interface import IProvisioner, IProvisionerFactory
+from six import iteritems
 from twisted.internet import defer, task
-from twisted.internet.defer import (
-    inlineCallbacks, 
-    returnValue,
-)
+from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.internet.endpoints import clientFromString, connectProtocol
 from twisted.internet.task import LoopingCall
-from twisted.web.client import(
-    Agent,
-    HTTPConnectionPool,
-)
-from twisted.web.iweb import (
-    IAgentEndpointFactory,
-    IBodyProducer,
-)
 from twisted.logger import Logger
 from twisted.plugin import IPlugin
-from zope.interface import implements, implementer
-from config import load_config, section2dict
-import constants
-from errors import (
-    OptionMissingError,
-)
-from interface import (
-    IProvisionerFactory,
-    IProvisioner,
-)
+from twisted.web.client import Agent, HTTPConnectionPool
+from twisted.web.iweb import IAgentEndpointFactory, IBodyProducer
 from utils import get_plugin_factory
+from zope.interface import implementer, implements
 
 
 @attr.attrs
@@ -86,6 +73,7 @@ class WebClientEndpointFactory(object):
     """
     An Agent endpoint factory based on endpoint strings.
     """
+
     def __init__(self, reactor, endpoint_s):
         self.reactor = reactor
         self.endpoint_s = endpoint_s
@@ -111,10 +99,13 @@ class StringProducer(object):
     def stopProducing(self):
         pass
 
+
 def useless_provisioner_factory__():
     raise NotImplementedError(
         "Set `provisioner_factory` to an instance of an actual provisioner factory.  "
-        "HINT: Subclass `RESTProvisioner`.")
+        "HINT: Subclass `RESTProvisioner`."
+    )
+
 
 class RESTProvisionerFactory(object):
     implements(IPlugin, IProvisionerFactory)
@@ -147,7 +138,7 @@ class RESTProvisioner(object):
     def get_match_value_from_remote_account(self, remote_account):
         """
         Given a remote account, `remote_account`, extract the
-        value that will be used to match the remote account 
+        value that will be used to match the remote account
         to the local subject.
         Returns None if a match value cannot be constructed for the remote
         account.
@@ -197,7 +188,7 @@ class RESTProvisioner(object):
     @inlineCallbacks
     def authorize_api_call(self, method, url, **http_options):
         """
-        Given the components of an *unauthenticated* HTTP client request, 
+        Given the components of an *unauthenticated* HTTP client request,
         return the components of an authenticated request.
 
         Should return a tuple of (method, url, http_options)
@@ -216,7 +207,7 @@ class RESTProvisioner(object):
         if False:
             yield None
         raise NotImplementedError()
-    
+
     @inlineCallbacks
     def api_add_subject_to_group(self, subject_id, target_group_id):
         """
@@ -252,7 +243,7 @@ class RESTProvisioner(object):
     @inlineCallbacks
     def get_all_api_ids_and_match_values(self):
         """
-        Load all the remote API IDs and match values from the 
+        Load all the remote API IDs and match values from the
         user accounts that exist on the remote sevice.
         Returns an iterable of (api_id, match_value).
         """
@@ -284,7 +275,7 @@ class RESTProvisioner(object):
     def api_add_subject(self, subject, attributes):
         """
         Use the API to add subjects.
-        
+
         Returns the API ID of the newly created remote account or None.
         If None is returned, the API ID will not be cached and require
         a lookup on future use.
@@ -310,9 +301,9 @@ class RESTProvisioner(object):
         pass
 
     def load_config(self, config_file, default_log_level, logObserverFactory):
-        """                                                             
-        Load the configuration for this provisioner and initialize it.  
-        """             
+        """
+        Load the configuration for this provisioner and initialize it.
+        """
         log = Logger(observer=logObserverFactory("ERROR"))
         try:
             # Load config.
@@ -321,19 +312,20 @@ class RESTProvisioner(object):
             config = section2dict(scp, section)
             self.config = config
             # Start logger.
-            log_level = config.get('log_level', default_log_level)
+            log_level = config.get("log_level", default_log_level)
             log = Logger(observer=logObserverFactory(log_level))
             self.log = log
-            log.info("Initializing provisioner.",
-                event_type='init_provisioner')
+            log.info("Initializing provisioner.", event_type="init_provisioner")
             # Load API configuration info-- endpoint info, URL, API key.
             try:
                 self.unmanaged_logins = set(
-                    login.lower() 
-                        for login in config.get("unmanaged_logins", "").split())
+                    login.lower()
+                    for login in config.get("unmanaged_logins", "").split()
+                )
                 log.debug(
                     "unmanaged_logins: {unmanaged_logins}",
-                    unmanaged_logins=list(self.unmanaged_logins))
+                    unmanaged_logins=list(self.unmanaged_logins),
+                )
                 self.provision_group = config.get("provision_group", None)
                 if self.provision_group is not None:
                     self.provision_group = self.provision_group.lower()
@@ -343,25 +335,48 @@ class RESTProvisioner(object):
                 self.client_secret = config["client_secret"]
                 self.account_cache_size = int(config["account_cache_size"])
                 if target_group_map_path:
-                    self.target_group_cache_size = int(config.get("target_group_cache_size", 100))
-                    self.target_group_retry_delay = int(config.get("target_group_retry_delay", 20))
-                self.account_sync_rate_limit_ms = int(config.get("account_sync_rate_limit_ms", 0))
-                self.member_sync_rate_limit_ms = int(config.get("member_sync_rate_limit_ms", 0))
-                self.provision_strategy = config.get("provision_strategy", "query-first").lower()
-                self.group_sync_strategy = config.get("group_sync_strategy", "add-members-first").lower()
-                if not self.group_sync_strategy in ('query-first', 'add-members-first'):
-                    raise Exception("Unknown group_sync_strategy: {}".format(self.group_sync_strategy))
-                self.account_cache_validity_period = int(config.get("account_cache_validity_period", 0))
+                    self.target_group_cache_size = int(
+                        config.get("target_group_cache_size", 100)
+                    )
+                    self.target_group_retry_delay = int(
+                        config.get("target_group_retry_delay", 20)
+                    )
+                self.account_sync_rate_limit_ms = int(
+                    config.get("account_sync_rate_limit_ms", 0)
+                )
+                self.member_sync_rate_limit_ms = int(
+                    config.get("member_sync_rate_limit_ms", 0)
+                )
+                self.provision_strategy = config.get(
+                    "provision_strategy", "query-first"
+                ).lower()
+                self.group_sync_strategy = config.get(
+                    "group_sync_strategy", "add-members-first"
+                ).lower()
+                if not self.group_sync_strategy in ("query-first", "add-members-first"):
+                    raise Exception(
+                        "Unknown group_sync_strategy: {}".format(
+                            self.group_sync_strategy
+                        )
+                    )
+                self.account_cache_validity_period = int(
+                    config.get("account_cache_validity_period", 0)
+                )
             except KeyError as ex:
                 raise OptionMissingError(
                     "A require option was missing: '{0}:{1}'.".format(
-                        section, ex.args[0]))
+                        section, ex.args[0]
+                    )
+                )
             if self.provision_group is None and target_group_map_path is None:
                 raise OptionMissingError(
                     "Must provide at least one of `provision_group` (account "
-                    "provisioning) or `target_group_map` (target_group mapping).")
-            if not self.provision_strategy in ('query-first', 'create-first'):
-                raise Exception("`provision_strategy` must be one of: query-first, create-first")
+                    "provisioning) or `target_group_map` (target_group mapping)."
+                )
+            if not self.provision_strategy in ("query-first", "create-first"):
+                raise Exception(
+                    "`provision_strategy` must be one of: query-first, create-first"
+                )
             # Create the web client.
             self.make_default_web_client()
             self.__target_group_cache = None
@@ -395,11 +410,11 @@ class RESTProvisioner(object):
             self.target_group_map = commentjson.load(f)
         log.info("Created source group to target group map.")
 
-    @inlineCallbacks                                                   
-    def provision(self, amqp_message):             
-        """                                                
-        Provision an entry based on an AMQP message.  
-        """                                              
+    @inlineCallbacks
+    def provision(self, amqp_message):
+        """
+        Provision an entry based on an AMQP message.
+        """
         log = self.log
         target_group_map = self.target_group_map
         try:
@@ -411,7 +426,8 @@ class RESTProvisioner(object):
                     log.warn(
                         "Group '{group}' is the account provisioning group AND in the target_group map."
                         "  It will NEVER be used for target_group mapping.",
-                        group=src_group)
+                        group=src_group,
+                    )
                 if msg.action in (constants.ACTION_ADD, constants.ACTION_UPDATE):
                     yield self.provision_subject(msg.subject, msg.attributes)
                 elif msg.action == constants.ACTION_DELETE:
@@ -420,22 +436,35 @@ class RESTProvisioner(object):
                     yield self.sync_members(msg.subjects, msg.attributes)
                 else:
                     raise UnknownActionError(
-                        "Don't know how to handle action '{0}' for provisioning.".format(msg.action))
+                        "Don't know how to handle action '{0}' for provisioning.".format(
+                            msg.action
+                        )
+                    )
             elif target_group is not None:
                 target_group = target_group.lower()
                 if msg.action == constants.ACTION_ADD:
-                    yield self.add_subject_to_target_group(target_group, msg.subject, msg.attributes)    
+                    yield self.add_subject_to_target_group(
+                        target_group, msg.subject, msg.attributes
+                    )
                 elif msg.action == constants.ACTION_DELETE:
-                    yield self.remove_subject_from_target_group(target_group, msg.subject, msg.attributes)
+                    yield self.remove_subject_from_target_group(
+                        target_group, msg.subject, msg.attributes
+                    )
                 elif msg.action == constants.ACTION_MEMBERSHIP_SYNC:
-                    yield self.sync_subjects_to_target_group(target_group, msg.subjects, msg.attributes)
+                    yield self.sync_subjects_to_target_group(
+                        target_group, msg.subjects, msg.attributes
+                    )
                 else:
                     raise UnknownActionError(
-                        "Don't know how to handle action '{0}' for target_groups.".format(msg.action))
+                        "Don't know how to handle action '{0}' for target_groups.".format(
+                            msg.action
+                        )
+                    )
             else:
                 log.warn(
                     "Not sure what to do with group '{group}'.  Discarding ...",
-                    group=src_group)
+                    group=src_group,
+                )
         except Exception as ex:
             log.warn("Error provisioning message: {error}", error=ex)
             tb = traceback.format_exc()
@@ -443,11 +472,13 @@ class RESTProvisioner(object):
             raise
 
     def get_config_defaults(self):
-        return dedent("""\
+        return dedent(
+            """\
             [PROVISIONER]
             url_prefix = https://graph.microsoft.com/v1.0
             account_cache_size = 1000
-            """)
+            """
+        )
 
     def parse_message(self, msg):
         """
@@ -457,21 +488,22 @@ class RESTProvisioner(object):
         provision_group = self.provision_group
         serialized = msg.content.body
         doc = json.loads(serialized)
-        action = doc['action']
-        group = doc['group'].lower()
+        action = doc["action"]
+        group = doc["group"].lower()
         single_subject_actions = (
             constants.ACTION_ADD,
             constants.ACTION_DELETE,
-            constants.ACTION_UPDATE)
+            constants.ACTION_UPDATE,
+        )
         if group == provision_group:
             if action in single_subject_actions:
-                subject = doc['subject'].lower()
+                subject = doc["subject"].lower()
                 attributes = None
-                attributes = doc['attributes']
+                attributes = doc["attributes"]
                 return ParsedSubjectMessage(action, group, subject, attributes)
             elif action == constants.ACTION_MEMBERSHIP_SYNC:
-                subjects = doc['subjects']
-                attributes = doc['attributes']
+                subjects = doc["subjects"]
+                attributes = doc["attributes"]
                 return ParsedSyncMessage(action, group, subjects, attributes)
         else:
             if action in single_subject_actions:
@@ -512,8 +544,8 @@ class RESTProvisioner(object):
         match_set = set([])
         for subject in subject_list:
             match_value = self.get_match_value_from_local_subject(
-                subject=subject,
-                attributes=attrib_map[subject])
+                subject=subject, attributes=attrib_map[subject]
+            )
             match_set.add(match_value)
         api_ids = yield self.get_all_api_ids_and_match_values()
         for api_id, match_value in api_ids:
@@ -522,7 +554,7 @@ class RESTProvisioner(object):
             if not match_value in match_set:
                 if not process_next_at is None:
                     yield delayUntil(reactor, process_next_at)
-                yield self.deprovision_subject(None, None, api_id=api_id) 
+                yield self.deprovision_subject(None, None, api_id=api_id)
                 if not rate_limit_td is None:
                     process_next_at = datetime.datetime.today() + rate_limit_td
 
@@ -536,21 +568,22 @@ class RESTProvisioner(object):
         log.debug(
             "Attempting to provision subject '{subject}' with strategy {strategy}.",
             subject=subject,
-            strategy=provision_strategy)
+            strategy=provision_strategy,
+        )
         if self.is_subject_unmanaged(subject, attributes):
             returnValue(None)
         api_id = yield self.get_subject_api_id_from_cache(subject)
         if not api_id is None:
             yield self.update_subject(subject, api_id, attributes)
             returnValue(None)
-        elif provision_strategy == 'query-first':
+        elif provision_strategy == "query-first":
             api_id = yield self.fetch_account_id(subject, attributes)
             if api_id is not None:
                 yield self.update_subject(subject, api_id, attributes)
             else:
                 yield self.add_subject(subject, attributes)
             returnValue(None)
-        elif provision_strategy == 'create-first':
+        elif provision_strategy == "create-first":
             try:
                 yield self.add_subject(subject, attributes)
             except Exception as ex:
@@ -558,7 +591,11 @@ class RESTProvisioner(object):
                 if api_id is not None:
                     yield self.update_subject(subject, api_id, attributes)
                 else:
-                    raise Exception("Could not create remote account nor query matching API ID for '{}'.".format(subject))
+                    raise Exception(
+                        "Could not create remote account nor query matching API ID for '{}'.".format(
+                            subject
+                        )
+                    )
         else:
             raise Exception("Unknown strategy '{}'.".format(provision_strategy))
 
@@ -573,8 +610,9 @@ class RESTProvisioner(object):
             content = yield response.content()
             raise Exception(
                 "Unauthorized.  Response ({code}):\n{content}".format(
-                    code=resp_code,
-                    content=content))
+                    code=resp_code, content=content
+                )
+            )
 
     @inlineCallbacks
     def fetch_auth_token(self):
@@ -601,11 +639,13 @@ class RESTProvisioner(object):
         method = method.lower()
         yield self.fetch_auth_token()
         new_method, new_url, new_http_options = yield self.authorize_api_call(
-            method, url, **http_options)
+            method, url, **http_options
+        )
         log.debug(
-            "Making authenticated API call.  method: {method}, URL: {url}", 
-            method=new_method, 
-            url=new_url)
+            "Making authenticated API call.  method: {method}, URL: {url}",
+            method=new_method,
+            url=new_url,
+        )
         response = yield getattr(http_client, new_method)(new_url, **new_http_options)
         log.debug("API call complete.  Response code: {code}", code=response.code)
         if response.code in (401, 419):
@@ -613,15 +653,18 @@ class RESTProvisioner(object):
             self.auth_token = None
             yield self.fetch_auth_token()
             new_method, new_url, new_http_options = yield self.authorize_api_call(
-                method, url, **http_options)
-            response = yield getattr(http_client, new_method)(new_url, **new_http_options)
+                method, url, **http_options
+            )
+            response = yield getattr(http_client, new_method)(
+                new_url, **new_http_options
+            )
             log.debug("API call complete.  Response code: {code}", code=response.code)
         returnValue(response)
 
     @inlineCallbacks
     def fetch_target_group_id(self, target_group):
         """
-        Fetch an existing remote target_group ID and return it or None if the remote 
+        Fetch an existing remote target_group ID and return it or None if the remote
         account does not exist.
         """
         log = self.log
@@ -630,22 +673,29 @@ class RESTProvisioner(object):
         target_group_cache = self.__target_group_cache
         cache_size = self.target_group_cache_size
         log.debug("cache max size: {cache_size}", cache_size=cache_size)
-        log.debug("cache current size: {cache_size}", cache_size=len(target_group_cache))
+        log.debug(
+            "cache current size: {cache_size}", cache_size=len(target_group_cache)
+        )
         all_groups = None
-        if len(target_group_cache) == 0: 
+        if len(target_group_cache) == 0:
             # Prefill cache.
             log.debug("Prefilling target_group cache ...")
             all_groups = yield self.api_get_all_target_groups()
-            for local_id, api_id in all_groups: 
+            for local_id, api_id in all_groups:
                 if len(target_group_cache) >= cache_size:
                     break
                 local_id = local_id.lower()
                 target_group_cache[local_id] = api_id
-            log.debug("Cache size after prefill: {cache_size}", cache_size=len(target_group_cache))
+            log.debug(
+                "Cache size after prefill: {cache_size}",
+                cache_size=len(target_group_cache),
+            )
         if target_group in target_group_cache:
             target_group_id = target_group_cache[target_group]
             returnValue(target_group_id)
-        log.debug("Remote ID not in cache for '{target_group}.", target_group=target_group)
+        log.debug(
+            "Remote ID not in cache for '{target_group}.", target_group=target_group
+        )
         if all_groups is None:
             all_groups = yield self.api_get_all_target_groups()
         for local_id, api_id in all_groups:
@@ -654,22 +704,27 @@ class RESTProvisioner(object):
             if local_id == target_group:
                 target_group_cache[target_group] = api_id
                 log.debug(
-                    "Added entry to target_group cache: {name}: {identifier}", 
-                    name=target_group, 
-                    identifier=api_id)
+                    "Added entry to target_group cache: {name}: {identifier}",
+                    name=target_group,
+                    identifier=api_id,
+                )
                 returnValue(api_id)
         returnValue(None)
-    
+
     @inlineCallbacks
-    def add_subject_to_target_group(self, target_group, subject, attributes, target_group_id=None, subject_id=None):
+    def add_subject_to_target_group(
+        self, target_group, subject, attributes, target_group_id=None, subject_id=None
+    ):
         """
         Add a subject to a target_group.
-        `subject_id` may be provided as an optimization.  If it is not 
+        `subject_id` may be provided as an optimization.  If it is not
         provided, it is looked up using `subject` and `attributes`.
         """
         log = self.log
-        assert (subject is not None), "Must provide `subject`!"
-        assert (target_group is not None) or (target_group_id is not None), "Must provide `target_group` or `target_group_id`!"
+        assert subject is not None, "Must provide `subject`!"
+        assert (target_group is not None) or (
+            target_group_id is not None
+        ), "Must provide `target_group` or `target_group_id`!"
         if not subject is None:
             if self.is_subject_unmanaged(subject, attributes):
                 returnValue(None)
@@ -682,28 +737,36 @@ class RESTProvisioner(object):
             if target_group_id is None:
                 log.warn(
                     "Unable to find target_group ID for '{target_group}'.  Discarding ...",
-                    target_group=target_group)
+                    target_group=target_group,
+                )
                 returnValue(None)
         if subject_id is None:
             subject_id = yield self.fetch_account_id(subject, attributes)
             if subject_id is None:
-                yield delay(self.reactor, self.target_group_retry_delay) 
+                yield delay(self.reactor, self.target_group_retry_delay)
                 subject_id = yield self.fetch_account_id(subject, attributes)
                 if subject_id is None:
                     log.warn(
                         "Unable to find api_id for subject '{subject}'.  Discarding ...",
-                        subject=subject)
+                        subject=subject,
+                    )
                     returnValue(None)
         yield self.api_add_subject_to_group(subject_id, target_group_id)
 
     @inlineCallbacks
-    def remove_subject_from_target_group(self, target_group, subject, attributes, target_group_id=None, subject_id=None):
+    def remove_subject_from_target_group(
+        self, target_group, subject, attributes, target_group_id=None, subject_id=None
+    ):
         """
         Remove a subject from a target_group.
         """
         log = self.log
-        assert (subject is not None) or (subject_id is not None), "Must provide `subject` or `subject_id`!"
-        assert (target_group is not None) or (target_group_id is not None), "Must provide `target_group` or `target_group_id`!"
+        assert (subject is not None) or (
+            subject_id is not None
+        ), "Must provide `subject` or `subject_id`!"
+        assert (target_group is not None) or (
+            target_group_id is not None
+        ), "Must provide `target_group` or `target_group_id`!"
         if not subject is None:
             if self.is_subject_unmanaged(subject, attributes):
                 returnValue(None)
@@ -717,14 +780,16 @@ class RESTProvisioner(object):
             if target_group_id is None:
                 log.warn(
                     "Unable to find target_group ID for '{target_group}'.  Discarding ...",
-                    target_group=target_group)
+                    target_group=target_group,
+                )
                 returnValue(None)
         if subject_id is None:
             subject_id = yield self.fetch_account_id(subject, attributes)
             if subject_id is None:
                 log.warn(
                     "Unable to find api_id for subject '{subject}'.  Discarding ...",
-                    subject=subject)
+                    subject=subject,
+                )
                 returnValue(None)
         yield self.api_remove_subject_from_group(subject_id, target_group_id)
 
@@ -746,15 +811,20 @@ class RESTProvisioner(object):
         if target_group_id is None:
             log.warn(
                 "Unable to find target_group ID for '{target_group}'.  Discarding ...",
-                target_group=target_group)
+                target_group=target_group,
+            )
             returnValue(None)
         subject_api_ids = []
-        if group_sync_strategy == 'query-first':
+        if group_sync_strategy == "query-first":
             log.debug("Group sync strategy is 'query-first'.")
-            existing_member_ids = yield self.get_subjects_for_target_group(target_group_id)
+            existing_member_ids = yield self.get_subjects_for_target_group(
+                target_group_id
+            )
         else:
             existing_member_ids = set([])
-        log.debug("`existing_member_ids`: {existing_ids}", existing_ids=existing_member_ids)
+        log.debug(
+            "`existing_member_ids`: {existing_ids}", existing_ids=existing_member_ids
+        )
         subject_list = list(subjects)
         subject_list.sort()
         for subject in subjects:
@@ -766,13 +836,15 @@ class RESTProvisioner(object):
                 log.warn(
                     "Could not find api ID for subject '{subject}'."
                     "  Ignoring for sync to target_group.",
-                    subject=subject)
+                    subject=subject,
+                )
                 continue
             subject_api_ids.append((subject, subject_api_id))
         log.debug(
             "Adding {count} subjects to target_group '{target_group}' ...",
             count=len(subject_api_ids),
-            target_group=target_group)
+            target_group=target_group,
+        )
         for subject, subject_api_id in subject_api_ids:
             if subject_api_id in existing_member_ids:
                 continue
@@ -789,7 +861,8 @@ class RESTProvisioner(object):
                 subject,
                 subj_attribs,
                 target_group_id=target_group_id,
-                subject_id=subject_api_id)
+                subject_id=subject_api_id,
+            )
             if not rate_limit_td is None:
                 process_next_at = datetime.datetime.today() + rate_limit_td
         subject_api_id_set = set(identifier for junk, identifier in subject_api_ids)
@@ -806,14 +879,15 @@ class RESTProvisioner(object):
                     subject=None,
                     attributes=None,
                     target_group_id=target_group_id,
-                    subject_id=api_id)
+                    subject_id=api_id,
+                )
                 if not rate_limit_td is None:
                     process_next_at = datetime.datetime.today() + rate_limit_td
 
     @inlineCallbacks
     def fetch_account_id(self, subject, attributes):
         """
-        Fetch an existing remote account ID and return it or None if the remote 
+        Fetch an existing remote account ID and return it or None if the remote
         account does not exist.
         """
         log = self.log
@@ -837,7 +911,7 @@ class RESTProvisioner(object):
 
     def get_subject_api_id_from_cache(self, subject):
         """
-        Fetch an existing remote account ID from the cache and return it 
+        Fetch an existing remote account ID from the cache and return it
         or None if the remote account does not exist.
         """
         log = self.log
@@ -870,7 +944,8 @@ class RESTProvisioner(object):
             log.debug(
                 "Invalidated subject cache fo subject '{subject}', API ID '{api_id}'.",
                 subject=k,
-                api_id=api_id)
+                api_id=api_id,
+            )
 
     def fill_account_cache(self, account_id_map):
         """
@@ -880,25 +955,32 @@ class RESTProvisioner(object):
         rather than looking it up multiple times.
 
         `account_id_map` should be a mapping of subjects to API IDs.
-        
+
         The cache will not be filled beyond its capacity.
         """
         log = self.log
-        log.debug("Filling account cache with {size} entries ...", size=len(account_id_map))
+        log.debug(
+            "Filling account cache with {size} entries ...", size=len(account_id_map)
+        )
         account_cache = self.__account_cache
         for subject, api_id in iteritems(account_id_map):
             account_cache[subject] = api_id
         if len(account_id_map) > self.account_cache_size:
-            log.warn("Number of results queried from remote system is greater than account cache size.")
+            log.warn(
+                "Number of results queried from remote system is greater than account cache size."
+            )
             return
         acvp = self.account_cache_validity_period
         if acvp == 0:
-            log.debug("Account cache validity period is 0.  Not enabling absolute trust in cache.")
+            log.debug(
+                "Account cache validity period is 0.  Not enabling absolute trust in cache."
+            )
             return
         self.trust_account_cache__ = True
         log.debug(
             "Enabled absolute trust in account cache for {cache_validity_period} seconds.",
-            cache_validity_period=acvp)
+            cache_validity_period=acvp,
+        )
         delayed_call = self.reactor.callLater(acvp, self.untrust_account_cache__)
         log.debug("Created IDelayedCall object.")
 
@@ -936,11 +1018,11 @@ class RESTProvisioner(object):
         try:
             api_id = yield self.api_add_subject(subject, attributes)
         except Exception as ex:
-            #log.error(
+            # log.error(
             #    "Error attempting to add subject '{subject}'.",
             #    subject=subject)
             raise
-        if api_id is not None:    
+        if api_id is not None:
             self.__account_cache[subject.lower()] = api_id
 
     @inlineCallbacks
@@ -950,25 +1032,29 @@ class RESTProvisioner(object):
         """
         log = self.log
         log.debug("Entered deprovision_subject().")
-        assert (subject is not None) or (api_id is not None), (
-            "Must provide `subject` or `api_id`!")
+        assert (subject is not None) or (
+            api_id is not None
+        ), "Must provide `subject` or `api_id`!"
         subject_identifier = subject or api_id
         log.debug(
             "Attempting to deprovision subject identified by '{identifier}'.",
-            identifier=subject_identifier)
+            identifier=subject_identifier,
+        )
         if api_id is None:
             subject = subject.lower()
             if self.is_subject_unmanaged(subject, attributes):
                 returnValue(None)
             api_id = yield self.fetch_account_id(subject, attributes)
         if api_id is None:
-            log.debug("Account '{subject}' does not exist on the remote service.",
-                subject=subject)
+            log.debug(
+                "Account '{subject}' does not exist on the remote service.",
+                subject=subject,
+            )
             returnValue(None)
         try:
             yield self.api_deprovision_subject(api_id)
         except Exception as ex:
-            #log.error(
+            # log.error(
             #    "Error attempting to de-provision subject identified by '{identifier}'.",
             #    identifier=subject_identifier)
             raise
@@ -987,14 +1073,17 @@ class RESTProvisioner(object):
         """
         Returns True if subject is unmanaged; False otherwise.
         """
-        log = self.log 
+        log = self.log
         unmanaged_logins = self.unmanaged_logins
-        subject_match_value = self.get_match_value_from_local_subject(subject, attributes)
+        subject_match_value = self.get_match_value_from_local_subject(
+            subject, attributes
+        )
         if subject_match_value in unmanaged_logins:
             log.debug(
                 "Subject '{subject}' has match value '{match_value}' which is unmanaged.  Skipping ...",
                 subject=subject,
-                match_value=subject_match_value)
+                match_value=subject_match_value,
+            )
             return True
         return False
 
@@ -1013,7 +1102,8 @@ class RESTProvisioner(object):
             log.debug(
                 "Remote account identified by '{api_id}' has match value '{match_value}' which is unmanaged.  Skipping ...",
                 api_id=api_id,
-                match_value=remote_match_value)
+                match_value=remote_match_value,
+            )
             returnValue(True)
         returnValue(False)
 
@@ -1024,9 +1114,8 @@ class RESTProvisioner(object):
         if pool is None:
             pool = HTTPConnectionPool(self.reactor)
         agent = Agent.usingEndpointFactory(
-            self.reactor,
-            WebClientEndpointFactory(self.reactor, endpoint_s),
-            pool=pool)
+            self.reactor, WebClientEndpointFactory(self.reactor, endpoint_s), pool=pool
+        )
         return (pool, agent)
 
     def make_web_client(self, endpoint_s, pool=None):
@@ -1040,12 +1129,14 @@ class RESTProvisioner(object):
         self.agent = agent
         self.http_client = http_client
 
+
 @inlineCallbacks
 def delay(reactor, seconds):
     """
     A Deferred that fires after `seconds` seconds.
     """
-    yield task.deferLater(reactor, seconds, lambda : None)
+    yield task.deferLater(reactor, seconds, lambda: None)
+
 
 @inlineCallbacks
 def delayUntil(reactor, t):
@@ -1061,5 +1152,4 @@ def delayUntil(reactor, t):
     if instant < t:
         td = t - instant
         delay_seconds = td.total_seconds()
-        yield task.deferLater(reactor, delay_seconds, lambda : None)
-    
+        yield task.deferLater(reactor, delay_seconds, lambda: None)
