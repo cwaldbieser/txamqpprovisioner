@@ -1,22 +1,17 @@
-
 from __future__ import print_function
+
 import itertools
 import json
 import random
 import string
-import urlparse
+
 import commentjson
-from rest_provisioner import (
-    APIResponseError,
-    OptionMissingError,
-    RESTProvisioner,
-    RESTProvisionerFactory, 
-    StringProducer,
-)
-from twisted.internet.defer import (
-    inlineCallbacks, 
-    returnValue,
-)
+import urlparse
+from rest_provisioner import (APIResponseError, OptionMissingError,
+                              RESTProvisioner, RESTProvisionerFactory,
+                              StringProducer)
+from twisted.internet.defer import inlineCallbacks, returnValue
+
 
 def generate_password():
     """
@@ -26,10 +21,13 @@ def generate_password():
     lowers = [random.choice(string.ascii_lowercase) for n in range(2)]
     punct = [random.choice(string.punctuation)]
     digit = [random.choice(string.digits)]
-    others = [random.choice(string.ascii_letters + string.punctuation + string.digits) for n in range(9)]
+    others = [
+        random.choice(string.ascii_letters + string.punctuation + string.digits)
+        for n in range(9)
+    ]
     concat = list(itertools.chain(caps, lowers, punct, digit, others))
     random.shuffle(concat)
-    return ''.join(concat)
+    return "".join(concat)
 
 
 class O365Provisioner(RESTProvisioner):
@@ -47,12 +45,13 @@ class O365Provisioner(RESTProvisioner):
       should not be managed by the provisioner (e.g. a back door admin account).
       These accounts are identified by their match_values.
     """
+
     http_authn_client = None
-    
+
     def get_match_value_from_remote_account(self, remote_account):
         """
         Given a remote account, `remote_account`, extract the
-        value that will be used to match the remote account 
+        value that will be used to match the remote account
         to the local subject.
         Returns None if a match value cannot be constructed for the remote
         account.
@@ -90,13 +89,11 @@ class O365Provisioner(RESTProvisioner):
         config = self.config
         client_id = config.get("client_id", None)
         if client_id is None:
-            raise OptionMissingError(
-                "The `client_id` option is missing!") 
+            raise OptionMissingError("The `client_id` option is missing!")
         self.client_id = client_id
         domain = config.get("domain", None)
         if domain is None:
-            raise OptionMissingError(
-                "The `domain` option is missing!") 
+            raise OptionMissingError("The `domain` option is missing!")
         self.domain = domain
         license_map = config.get("license_map", None)
         self.license_map = self.parse_license_map(license_map)
@@ -109,14 +106,14 @@ class O365Provisioner(RESTProvisioner):
         if license_map is None:
             return {}
         with open(license_map, "r") as f:
-             doc = commentjson.load(f)
+            doc = commentjson.load(f)
         for group, info in doc.items():
             sku = info.get("sku", None)
             if sku is None:
                 raise Exception(
                     "License map '{0}': group '{1}' does not have 'sku' property!".format(
-                        license_map,
-                        group)
+                        license_map, group
+                    )
                 )
         return doc
 
@@ -129,32 +126,42 @@ class O365Provisioner(RESTProvisioner):
         log = self.log
         domain = self.domain
         if self.http_authn_client is None:
-            pool, agent, client = self.make_web_client("tls:host=login.microsoftonline.com:port=443")
+            pool, agent, client = self.make_web_client(
+                "tls:host=login.microsoftonline.com:port=443"
+            )
             self.http_authn_client = client
         http_client = self.http_authn_client
         auth_url = "https://login.microsoftonline.com/{0}/oauth2/token".format(domain)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
         client_secret = self.client_secret
         data = {
             "grant_type": "client_credentials",
             "client_id": self.client_id,
             "client_secret": client_secret,
-            "resource": "https://graph.microsoft.com/"}
+            "resource": "https://graph.microsoft.com/",
+        }
         log.debug("Making API call to obtain auth token ...")
         log.debug("method: POST, URL: {url}", url=auth_url)
         response = yield http_client.post(auth_url, data=data, headers=headers)
         resp_code = response.code
-        log.debug("API call to obtain token is complete.  Response code: {code}", code=resp_code)
+        log.debug(
+            "API call to obtain token is complete.  Response code: {code}",
+            code=resp_code,
+        )
         if resp_code == 200:
             try:
                 doc = yield response.json()
             except Exception as ex:
-                log.error("Error attempting to parse response to authentication request.")
+                log.error(
+                    "Error attempting to parse response to authentication request."
+                )
                 raise
             if not "access_token" in doc:
-                log.error("Error attempting to parse response to authentication request.")
+                log.error(
+                    "Error attempting to parse response to authentication request."
+                )
                 raise Exception("Error parsing authentication response.")
             self.auth_token = doc["access_token"]
             log.debug("New auth token obtained.")
@@ -163,14 +170,14 @@ class O365Provisioner(RESTProvisioner):
             content = yield response.content()
             raise Exception(
                 "Unable to obtain valid auth token.  Response {0}: {1}".format(
-                response_code=resp_code,
-                content=content)
+                    response_code=resp_code, content=content
+                )
             )
 
     @inlineCallbacks
     def authorize_api_call(self, method, url, **http_options):
         """
-        Given the components of an *unauthenticated* HTTP client request, 
+        Given the components of an *unauthenticated* HTTP client request,
         return the components of an authenticated request.
 
         Should return a tuple of (method, url, http_options)
@@ -187,7 +194,7 @@ class O365Provisioner(RESTProvisioner):
     @inlineCallbacks
     def get_all_api_ids_and_match_values(self):
         """
-        Load all the remote subject IDs and match values from the 
+        Load all the remote subject IDs and match values from the
         user accounts that exist on the remote sevice.
         Note: If a match value cannot be constructed for a remote
         account, it will not be included in the output of this function.
@@ -198,7 +205,7 @@ class O365Provisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users".format(prefix)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
         identifiers = []
         while True:
@@ -206,9 +213,8 @@ class O365Provisioner(RESTProvisioner):
             log.debug("headers: {headers}", headers=headers)
             try:
                 resp = yield self.make_authenticated_api_call(
-                    "GET",
-                    url,
-                    headers=headers)
+                    "GET", url, headers=headers
+                )
             except Exception as ex:
                 log.error("Error fetching all remote user data.")
                 raise
@@ -236,15 +242,12 @@ class O365Provisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users/{1}".format(prefix, api_id)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
         identifiers = []
         log.debug("URL (GET): {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
-        resp = yield self.make_authenticated_api_call(
-            "GET",
-            url,
-            headers=headers)
+        resp = yield self.make_authenticated_api_call("GET", url, headers=headers)
         remote_account = yield resp.json()
         returnValue(remote_account)
 
@@ -259,29 +262,31 @@ class O365Provisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users/{1}".format(prefix, api_id)
         headers = {
-            'Accept': ['application/json'],
-            'Content-Type': ['application/json'],
+            "Accept": ["application/json"],
+            "Content-Type": ["application/json"],
         }
         props = {
-            'accountEnabled': False,
+            "accountEnabled": False,
         }
         serialized = json.dumps(props)
-        body = StringProducer(serialized.encode('utf-8'))
+        body = StringProducer(serialized.encode("utf-8"))
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("body: {body}", body=serialized)
         resp = yield self.make_authenticated_api_call(
-            "PATCH",
-            url,
-            headers=headers,
-            data=body)
+            "PATCH", url, headers=headers, data=body
+        )
         resp_code = resp.code
         try:
             content = yield resp.content()
         except Exception as ex:
             pass
         if resp_code != 204:
-            raise Exception("API call to deprovision subject returned HTTP status {0}".format(resp_code))
+            raise Exception(
+                "API call to deprovision subject returned HTTP status {0}".format(
+                    resp_code
+                )
+            )
         returnValue(None)
 
     @inlineCallbacks
@@ -293,19 +298,20 @@ class O365Provisioner(RESTProvisioner):
         log = self.log
         http_client = self.http_client
         prefix = self.url_prefix
-        upn = "{0}@{1}".format(subject, self.domain) 
+        upn = "{0}@{1}".format(subject, self.domain)
         url = "{0}/users/{1}".format(prefix, upn)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
-        resp = yield self.make_authenticated_api_call(
-            "GET",
-            url,
-            headers=headers)
+        resp = yield self.make_authenticated_api_call("GET", url, headers=headers)
         resp_code = resp.code
         parsed = yield resp.json()
         if resp_code not in (200, 404):
-            raise Exception("API call to deprovision subject returned HTTP status {0}".format(resp_code))
+            raise Exception(
+                "API call to deprovision subject returned HTTP status {0}".format(
+                    resp_code
+                )
+            )
         if resp_code == 200 and "id" in parsed:
             api_id = parsed["id"]
         else:
@@ -322,8 +328,8 @@ class O365Provisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users/{1}".format(prefix, api_id)
         headers = {
-            'Accept': ['application/json'],
-            'Content-Type': ['application/json'],
+            "Accept": ["application/json"],
+            "Content-Type": ["application/json"],
         }
         surname = attributes.get("sn", [""])[0].encode("utf-8")
         givenname = attributes.get("givenName", [""])[0].encode("utf-8")
@@ -331,33 +337,31 @@ class O365Provisioner(RESTProvisioner):
         upn = "{0}@{1}".format(subject, self.domain)
         immutable_id = attributes.get("bannerLNumber", [None])[0]
         props = {
-            'accountEnabled': True,
-            'displayName': displayname,
-            'givenName': givenname,
-            'surname': surname,
-            'userPrincipalName': upn,
-            'mailNickname': subject,
-            'usageLocation': 'US',
+            "accountEnabled": True,
+            "displayName": displayname,
+            "givenName": givenname,
+            "surname": surname,
+            "userPrincipalName": upn,
+            "mailNickname": subject,
+            "usageLocation": "US",
         }
         if not immutable_id is None:
             props["onPremisesImmutableId"] = immutable_id
         serialized = json.dumps(props)
-        body = StringProducer(serialized.encode('utf-8'))
+        body = StringProducer(serialized.encode("utf-8"))
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("body: {body}", body=serialized)
         resp = yield self.make_authenticated_api_call(
-            'PATCH',  
-            url, 
-            data=body, 
-            headers=headers)
+            "PATCH", url, data=body, headers=headers
+        )
         returnValue(resp)
 
     @inlineCallbacks
     def api_add_subject(self, subject, attributes):
         """
         Use the API to add subjects.
-        
+
         Returns the API ID of the newly created remote account or None.
         If None is returned, the API ID will not be cached and require
         a lookup on future use.
@@ -367,50 +371,43 @@ class O365Provisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users".format(prefix)
         headers = {
-            'Accept': ['application/json'],
-            'Content-Type': ['application/json'],
+            "Accept": ["application/json"],
+            "Content-Type": ["application/json"],
         }
-        surname = attributes.get("sn", [""])[0].encode('utf-8')
+        surname = attributes.get("sn", [""])[0].encode("utf-8")
         givenname = attributes.get("givenName", [""])[0].encode("utf-8")
         displayname = "{0}, {1}".format(surname, givenname)
         upn = "{0}@{1}".format(subject, self.domain)
         immutable_id = attributes.get("bannerLNumber", [None])[0]
         if immutable_id is None:
-            raise Exception(
-                "No immutable ID found for subject '{0}'!".format(subject)
-            )
+            raise Exception("No immutable ID found for subject '{0}'!".format(subject))
         props = {
-            'accountEnabled': True,
-            'displayName': displayname,
-            'givenName': givenname,
-            'surname': surname,
-            'userPrincipalName': upn,
-            'passwordProfile': {
-                "forceChangePasswordNextSignIn": False, 
+            "accountEnabled": True,
+            "displayName": displayname,
+            "givenName": givenname,
+            "surname": surname,
+            "userPrincipalName": upn,
+            "passwordProfile": {
+                "forceChangePasswordNextSignIn": False,
                 "password": generate_password(),
             },
-            'mailNickname': subject,
-            'usageLocation': 'US',
-            'onPremisesImmutableId': immutable_id,
+            "mailNickname": subject,
+            "usageLocation": "US",
+            "onPremisesImmutableId": immutable_id,
         }
         serialized = json.dumps(props)
-        body = StringProducer(serialized.encode('utf-8'))
+        body = StringProducer(serialized.encode("utf-8"))
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("body: {body}", body=serialized)
         resp = yield self.make_authenticated_api_call(
-            'POST',  
-            url, 
-            data=body, 
-            headers=headers)
+            "POST", url, data=body, headers=headers
+        )
         resp_code = resp.code
         log.debug("Add-subject API response code: {code}", code=resp_code)
         if resp_code != 201:
             content = yield resp.content()
-            log.error(
-                "API response {code}: {content}", 
-                code=resp_code,
-                content=content)
+            log.error("API response {code}: {content}", code=resp_code, content=content)
             raise Exception("API returned status {0}".format(resp_code))
         else:
             parsed = yield resp.json()
@@ -443,36 +440,31 @@ class O365Provisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users/{1}/assignLicense".format(prefix, subject_id)
         headers = {
-            'Accept': ['application/json'],
-            'Content-Type': ['application/json'],
+            "Accept": ["application/json"],
+            "Content-Type": ["application/json"],
         }
         props = {
-            'addLicenses': [
+            "addLicenses": [
                 {
-                    "disabledPlans": disabled_products, 
+                    "disabledPlans": disabled_products,
                     "skuId": sku,
                 }
             ],
-            'removeLicenses': [],
+            "removeLicenses": [],
         }
         serialized = json.dumps(props)
-        body = StringProducer(serialized.encode('utf-8'))
+        body = StringProducer(serialized.encode("utf-8"))
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("body: {body}", body=serialized)
         resp = yield self.make_authenticated_api_call(
-            'POST',  
-            url, 
-            data=body, 
-            headers=headers)
+            "POST", url, data=body, headers=headers
+        )
         resp_code = resp.code
         log.debug("Add-license API response code: {code}", code=resp_code)
         if resp_code != 200:
             content = yield resp.content()
-            log.error(
-                "API response {code}: {content}", 
-                code=resp_code,
-                content=content)
+            log.error("API response {code}: {content}", code=resp_code, content=content)
             raise Exception("API returned status {0}".format(resp_code))
         else:
             parsed = yield resp.json()
@@ -504,30 +496,28 @@ class O365Provisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users/{1}/assignLicense".format(prefix, subject_id)
         headers = {
-            'Accept': ['application/json'],
-            'Content-Type': ['application/json'],
+            "Accept": ["application/json"],
+            "Content-Type": ["application/json"],
         }
         props = {
-            'removeLicenses': [sku],
-            'addLicenses': [],
+            "removeLicenses": [sku],
+            "addLicenses": [],
         }
         serialized = json.dumps(props)
-        body = StringProducer(serialized.encode('utf-8'))
+        body = StringProducer(serialized.encode("utf-8"))
         log.debug("url: {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         log.debug("body: {body}", body=serialized)
         resp = yield self.make_authenticated_api_call(
-            'POST',  
-            url, 
-            data=body, 
-            headers=headers)
+            "POST", url, data=body, headers=headers
+        )
         resp_code = resp.code
         log.debug("Remove-license API response code: {code}", code=resp_code)
         content = yield resp.content()
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as ex:
-            parsed = None 
+            parsed = None
         is_error = False
         if resp_code != 200:
             is_error = True
@@ -537,10 +527,7 @@ class O365Provisioner(RESTProvisioner):
                 if message == "User does not have a corresponding license.":
                     is_error = False
         if is_error:
-            log.error(
-                "API response {code}: {content}", 
-                code=resp_code,
-                content=content)
+            log.error("API response {code}: {content}", code=resp_code, content=content)
             raise Exception("API returned status {0}".format(resp_code))
 
     @inlineCallbacks
@@ -552,7 +539,7 @@ class O365Provisioner(RESTProvisioner):
         """
         if False:
             yield "Can't wait for async/await!"
-        log = self.log  
+        log = self.log
         rval = [(tgroup, tgroup) for tgroup in self.license_map.keys()]
         returnValue(rval)
 
@@ -563,13 +550,15 @@ class O365Provisioner(RESTProvisioner):
         by remote target_group_id.
         """
         log = self.log
-        log.debug("Attempting to fetch subject API IDs that are members of a target group ...")
+        log.debug(
+            "Attempting to fetch subject API IDs that are members of a target group ..."
+        )
         license_info = self.license_map.get(target_group_id)
         if not license_info is None:
             api_ids = yield self.api_get_subjects_for_license(license_info)
             returnValue(api_ids)
         raise NotImplementedError()
-    
+
     @inlineCallbacks
     def api_get_subjects_for_license(self, license_info):
         """
@@ -583,11 +572,9 @@ class O365Provisioner(RESTProvisioner):
         prefix = self.url_prefix
         url = "{0}/users".format(prefix)
         headers = {
-            'Accept': ['application/json'],
+            "Accept": ["application/json"],
         }
-        params = {
-            '$select': 'accountEnabled,userPrincipalName,id'
-        }
+        params = {"$select": "accountEnabled,userPrincipalName,id"}
         identifiers = []
         qs = {}
         while True:
@@ -596,10 +583,8 @@ class O365Provisioner(RESTProvisioner):
             params.update(qs)
             try:
                 resp = yield self.make_authenticated_api_call(
-                    "GET",
-                    url,
-                    headers=headers,
-                    params=params)
+                    "GET", url, headers=headers, params=params
+                )
             except Exception as ex:
                 log.error("Error fetching all remote user data.")
                 raise
@@ -627,7 +612,9 @@ class O365Provisioner(RESTProvisioner):
                 url = parsed["@odata.nextLink"]
                 p = urlparse.urlparse(url)
                 qs = urlparse.parse_qs(p.query)
-                url = urlparse.urlunparse((p.scheme, p.netloc, p.path, p.params, {}, p.fragment))
+                url = urlparse.urlunparse(
+                    (p.scheme, p.netloc, p.path, p.params, {}, p.fragment)
+                )
             else:
                 break
         returnValue(identifiers)
@@ -638,5 +625,3 @@ class O365ProvisionerFactory(RESTProvisionerFactory):
     opt_help = "MS Graph API Provisioner"
     opt_usage = "This plugin does not support any options."
     provisioner_factory = O365Provisioner
-
-
