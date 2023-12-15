@@ -7,9 +7,8 @@ import string
 
 import commentjson
 import urlparse
-from rest_provisioner import (APIResponseError, OptionMissingError,
-                              RESTProvisioner, RESTProvisionerFactory,
-                              StringProducer)
+from rest_provisioner import (OptionMissingError, RESTProvisioner,
+                              RESTProvisionerFactory, StringProducer)
 from twisted.internet.defer import inlineCallbacks, returnValue
 
 
@@ -56,7 +55,6 @@ class O365Provisioner(RESTProvisioner):
         Returns None if a match value cannot be constructed for the remote
         account.
         """
-        log = self.log
         domain = self.domain
         match_value = remote_account.get("userPrincipalName", None)
         if match_value is not None:
@@ -85,7 +83,6 @@ class O365Provisioner(RESTProvisioner):
         """
         Parse any additional configuration this provisioner might need.
         """
-        log = self.log
         config = self.config
         client_id = config.get("client_id", None)
         if client_id is None:
@@ -153,12 +150,12 @@ class O365Provisioner(RESTProvisioner):
         if resp_code == 200:
             try:
                 doc = yield response.json()
-            except Exception as ex:
+            except Exception:
                 log.error(
                     "Error attempting to parse response to authentication request."
                 )
                 raise
-            if not "access_token" in doc:
+            if "access_token" not in doc:
                 log.error(
                     "Error attempting to parse response to authentication request."
                 )
@@ -169,9 +166,10 @@ class O365Provisioner(RESTProvisioner):
             self.check_unauthorized_response(response)
             content = yield response.content()
             raise Exception(
-                "Unable to obtain valid auth token.  Response {0}: {1}".format(
-                    response_code=resp_code, content=content
-                )
+                (
+                    "Unable to obtain valid auth token."
+                    "  Response {response_code}: {content}"
+                ).format(response_code=resp_code, content=content)
             )
 
     @inlineCallbacks
@@ -201,7 +199,6 @@ class O365Provisioner(RESTProvisioner):
         """
         log = self.log
         log.debug("Attempting to fetch local IDs from all remote user accounts ...")
-        http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}/users".format(prefix)
         headers = {
@@ -215,7 +212,7 @@ class O365Provisioner(RESTProvisioner):
                 resp = yield self.make_authenticated_api_call(
                     "GET", url, headers=headers
                 )
-            except Exception as ex:
+            except Exception:
                 log.error("Error fetching all remote user data.")
                 raise
             parsed = yield resp.json()
@@ -223,7 +220,7 @@ class O365Provisioner(RESTProvisioner):
             for entry in value:
                 api_id = self.get_api_id_from_remote_account(entry)
                 match_value = self.get_match_value_from_remote_account(entry)
-                if not match_value is None:
+                if match_value is not None:
                     identifiers.append((api_id, match_value))
             if "@odata.nextLink" in parsed:
                 url = parsed["@odata.nextLink"]
@@ -238,13 +235,11 @@ class O365Provisioner(RESTProvisioner):
         """
         log = self.log
         log.debug("Attempting to fetch remote account ...")
-        http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}/users/{1}".format(prefix, api_id)
         headers = {
             "Accept": ["application/json"],
         }
-        identifiers = []
         log.debug("URL (GET): {url}", url=url)
         log.debug("headers: {headers}", headers=headers)
         resp = yield self.make_authenticated_api_call("GET", url, headers=headers)
@@ -258,7 +253,6 @@ class O365Provisioner(RESTProvisioner):
         `api_id`.
         """
         log = self.log
-        http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}/users/{1}".format(prefix, api_id)
         headers = {
@@ -278,8 +272,8 @@ class O365Provisioner(RESTProvisioner):
         )
         resp_code = resp.code
         try:
-            content = yield resp.content()
-        except Exception as ex:
+            yield resp.content()
+        except Exception:
             pass
         if resp_code != 204:
             raise Exception(
@@ -295,8 +289,6 @@ class O365Provisioner(RESTProvisioner):
         Fetch the remote ID for a subject.
         Return None if the account oes not exist on the remote end.
         """
-        log = self.log
-        http_client = self.http_client
         prefix = self.url_prefix
         upn = "{0}@{1}".format(subject, self.domain)
         url = "{0}/users/{1}".format(prefix, upn)
@@ -345,7 +337,7 @@ class O365Provisioner(RESTProvisioner):
             "mailNickname": subject,
             "usageLocation": "US",
         }
-        if not immutable_id is None:
+        if immutable_id is not None:
             props["onPremisesImmutableId"] = immutable_id
         serialized = json.dumps(props)
         body = StringProducer(serialized.encode("utf-8"))
@@ -424,7 +416,7 @@ class O365Provisioner(RESTProvisioner):
         log = self.log
         log.debug("Entered: api_add_subject_to_group().")
         license_info = self.license_map.get(target_group_id)
-        if not license_info is None:
+        if license_info is not None:
             yield self.api_add_license_to_subject(subject_id, license_info)
         else:
             raise NotImplementedError()
@@ -481,7 +473,7 @@ class O365Provisioner(RESTProvisioner):
         log = self.log
         log.debug("Entered: api_add_subject_to_group().")
         license_info = self.license_map.get(target_group_id)
-        if not license_info is None:
+        if license_info is not None:
             yield self.api_remove_license_from_subject(subject_id, license_info)
         else:
             raise NotImplementedError()
@@ -516,12 +508,12 @@ class O365Provisioner(RESTProvisioner):
         content = yield resp.content()
         try:
             parsed = json.loads(content)
-        except json.JSONDecodeError as ex:
+        except json.JSONDecodeError:
             parsed = None
         is_error = False
         if resp_code != 200:
             is_error = True
-            if (resp_code == 400) and (not parsed is None):
+            if (resp_code == 400) and (parsed is not None):
                 error = parsed.get("error", {})
                 message = error.get("message", None)
                 if message == "User does not have a corresponding license.":
@@ -539,7 +531,6 @@ class O365Provisioner(RESTProvisioner):
         """
         if False:
             yield "Can't wait for async/await!"
-        log = self.log
         rval = [(tgroup, tgroup) for tgroup in self.license_map.keys()]
         returnValue(rval)
 
@@ -554,7 +545,7 @@ class O365Provisioner(RESTProvisioner):
             "Attempting to fetch subject API IDs that are members of a target group ..."
         )
         license_info = self.license_map.get(target_group_id)
-        if not license_info is None:
+        if license_info is not None:
             api_ids = yield self.api_get_subjects_for_license(license_info)
             returnValue(api_ids)
         raise NotImplementedError()
@@ -568,7 +559,6 @@ class O365Provisioner(RESTProvisioner):
         log = self.log
         sku = license_info["sku"]
         disabled_products = set(license_info.get("disabled_products", []))
-        http_client = self.http_client
         prefix = self.url_prefix
         url = "{0}/users".format(prefix)
         headers = {
@@ -585,13 +575,13 @@ class O365Provisioner(RESTProvisioner):
                 resp = yield self.make_authenticated_api_call(
                     "GET", url, headers=headers, params=params
                 )
-            except Exception as ex:
+            except Exception:
                 log.error("Error fetching all remote user data.")
                 raise
             parsed = yield resp.json()
             try:
                 value = parsed["value"]
-            except Exception as ex:
+            except Exception:
                 log.debug("No value; parsed: {parsed}", parsed=parsed)
                 raise
             unmanaged_logins = self.unmanaged_logins
