@@ -471,7 +471,7 @@ class O365Provisioner(RESTProvisioner):
         Should raise on error on failure.
         """
         log = self.log
-        log.debug("Entered: api_add_subject_to_group().")
+        log.debug("Entered: api_remove_subject_to_group().")
         license_info = self.license_map.get(target_group_id)
         if license_info is not None:
             yield self.api_remove_license_from_subject(subject_id, license_info)
